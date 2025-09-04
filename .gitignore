@@ -1,0 +1,54 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# -------------------------
+# Environment & Config
+# -------------------------
+.env
+*.env
+*.ini
+*.cfg
+*.toml
+*.sqlite3
+
+# -------------------------
+# IDEs & Editors
+# -------------------------
+# PyCharm
+.idea/
+# VSCode (just in case)
+.vscode/
+# Others
+*.swp
+*.swo
+
+# -------------------------
+# Testing & Coverage
+# -------------------------
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# -------------------------
+# OS / Misc
+# -------------------------
+.DS_Store
+Thumbs.db
