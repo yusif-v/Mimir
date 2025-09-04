@@ -1,5 +1,3 @@
-from os import getenv
-
 import requests
 import json
 import os
@@ -16,11 +14,8 @@ def threatfox_lookup(hash_value):
         "hash": hash_value
     }
 
-    response = requests.post(url, data=data)
-
-    data = response.json()
-    print(json.dumps(data, indent=4))
-
+    response = requests.post(url, headers=headers, data=data)
+    print(json.dumps(response.json(), indent=4))
 
 # Example usage
 threatfox_lookup("72b7bdbd1362f833ed7a2e32f679a0fac64839aa98c515cbc5e97f6fcb6c32d8")

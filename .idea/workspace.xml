@@ -4,20 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5bbea55c-614a-4d69-8fe7-0a75ecc27d40" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/Mimir.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/alienVault.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/malwareBazaar.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/threatFox.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/virusTotal.py" afterDir="false" />
-    </list>
+    <list default="true" id="5bbea55c-614a-4d69-8fe7-0a75ecc27d40" name="Changes" comment="Test Point" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -31,8 +18,25 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="PUSH_AUTO_UPDATE" value="true" />
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "history": [
+    {
+      "assignee": "yusif-v"
+    }
+  ],
+  "lastFilter": {
+    "assignee": "yusif-v"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/yusif-v/Mimir.git&quot;,
+    &quot;accountId&quot;: &quot;98cc6662-a68a-4557-97c9-e5bb1a661a36&quot;
+  }
+}</component>
   <component name="ProblemsViewState">
     <option name="selectedTabId" value="CurrentFile" />
   </component>
@@ -48,10 +52,13 @@
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "Python.alienVault.executor": "Run",
+    "Python.malwareBazaar.executor": "Run",
+    "Python.threatFox.executor": "Run",
+    "Python.virusTotal.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main"
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>
   <component name="SharedIndexes">
@@ -69,6 +76,35 @@
       <option name="presentableId" value="Default" />
       <updated>1756915419039</updated>
     </task>
+    <task id="LOCAL-00001" summary="Test Point">
+      <option name="closed" value="true" />
+      <created>1756972810520</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1756972810520</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Test Point">
+      <option name="closed" value="true" />
+      <created>1756973072991</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1756973072991</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Test Point">
+      <option name="closed" value="true" />
+      <created>1756973371055</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1756973371055</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Test Point" />
+    <option name="LAST_COMMIT_MESSAGE" value="Test Point" />
   </component>
 </project>
