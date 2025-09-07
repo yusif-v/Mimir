@@ -1,6 +1,3 @@
-# import virusTotal
-# import malwareBazaar
-# import threatFox
 import os
 
 def env_check():
@@ -8,22 +5,35 @@ def env_check():
     keys = ["OTX_API_KEY", "ABUSE_API_KEY", "ACH_API_KEY", "VT_API_KEY"]
 
     if not os.path.exists(env):
-        print(".env file not found. You need to create an .env file.")
+        print("No .env file found.")
+        print("Please create a `.env` file based on `env.sample` and add your API keys.")
+        print("Mimir cannot run without at least one API key configured.")
         return False
 
     with open(env, "r") as f:
         content = f.read()
 
-    envstatus = True
+    missing_keys = []
 
     for key in keys:
         if f"{key}=" in content:
-            print(f"✅ {key} is ready")
+            print(f"{key} found")
         else:
-            print(f"⚠️ {key} is missing")
-            envstatus = False
+            print(f"{key} missing")
+            missing_keys.append(key)
 
-    return envstatus
+    if not missing_keys:
+        print("All API keys are configured. Mimir is ready to go.")
+    elif len(missing_keys) == len(keys):
+        print("No API keys configured.")
+        print("Please add at least one key from `env.sample` to use Mimir.")
+        return False
+    else:
+        print(f"Some keys are missing: {', '.join(missing_keys)}")
+        print("Mimir will run, but related features may not work.")
+
+    return True
 
 if __name__ == "__main__":
-    print(env_check())
+    if env_check():
+        print("Hello World")
