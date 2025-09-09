@@ -1,5 +1,7 @@
 import os
 import sys
+from shell import mimir
+
 
 def env_check():
     env = ".env"
@@ -7,7 +9,9 @@ def env_check():
 
     if not os.path.exists(env):
         print("No .env file found.")
-        print("Please create a `.env` file based on `env.sample` and add your API keys.")
+        print(
+            "Please create a `.env` file based on `env.sample` and add your API keys."
+        )
         print("Mimir cannot run without at least one API key configured.")
         return False
 
@@ -35,19 +39,6 @@ def env_check():
 
     return True
 
-def mimir():
-    print("Welcome to Mimir. Type 'help' for commands, 'exit' to quit.")
-    while True:
-        command = input("|> ").strip().lower()
-        if command == "exit":
-            print("Exiting Mimir...")
-            break
-        elif command == "help":
-            print("Available commands: help, exit")
-        elif command == "":
-            continue
-        else:
-            print(f"Unknown command: {command}. Type 'help' for available commands.")
 
 if __name__ == "__main__":
     if env_check():
