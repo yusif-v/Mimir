@@ -2,7 +2,7 @@ import subprocess
 import shlex
 from integrations import malwareBazaar
 
-def gethash(args):
+def get_hash(args):
     result = subprocess.run(
         ["sha256sum", *args],
         capture_output=True,
@@ -29,15 +29,15 @@ def mimir():
             print("Available commands: help, exit")
         elif command == "hash":
             if not args:
-                print("Usage: hash <filename>")
+                print("Usage: hash <filename>, hash -h <hashstring>")
                 continue
             elif "-h" in args:
                 hashindex = args.index("-h")
                 hashstring = args[hashindex + 1]
-                print(malwareBazaar.mb_hash(hashstring))
+                malwareBazaar.mb_hash(hashstring)
                 continue
             try:
-                gethash(args)
+                get_hash(args)
             except subprocess.CalledProcessError as e:
                 print(f"Error: {e.stderr.strip()}")
         else:
