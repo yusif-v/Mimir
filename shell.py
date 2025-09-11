@@ -1,6 +1,7 @@
 import subprocess
 import shlex
-from integrations import malwareBazaar
+from integrations import malwareBazaar, abuseIPDB
+
 
 def get_hash(args):
     result = subprocess.run(
@@ -11,6 +12,7 @@ def get_hash(args):
     )
     print(result.stdout.strip().split()[0])
     malwareBazaar.mb_hash(result.stdout.strip().split()[0])
+
 
 def mimir():
     print("Welcome to Mimir. Type 'help' for commands, 'exit' to quit.")
@@ -25,21 +27,38 @@ def mimir():
         if command == "exit":
             print("Exiting Mimir...")
             break
+
         elif command == "help":
-            print("Available commands: help, exit")
+            print("Available commands: help, exit, hash, ipcheck")
+
         elif command == "hash":
             if not args:
                 print("Usage: hash <filename>, hash -h <hashstring>")
                 continue
+
             elif "-h" in args:
                 hashindex = args.index("-h")
                 hashstring = args[hashindex + 1]
                 malwareBazaar.mb_hash(hashstring)
                 continue
+
             try:
                 get_hash(args)
             except subprocess.CalledProcessError as e:
                 print(f"Error: {e.stderr.strip()}")
+
+        elif command == "ipcheck":
+            if not args:
+                print("Usage: ipcheck <ip address>")
+                continue
+
+            elif bool(abuseIPDB.ip_regex.match(args[0])):
+                abuseIPDB.abuse_ip(args[0])
+                continue
+
+            print("Invalid IP address")
+            continue
+
         else:
             try:
                 result = subprocess.run(

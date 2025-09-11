@@ -7,10 +7,11 @@ Mimir is a terminal-based DFIR arsenal that provides a fast, interactive interfa
 * Interactive REPL
 * Basic hash lookup
 * API integrations:
-  - [x] MalwareBazaar
-  - [ ] AlienVault
-  - [ ] ThreatFox
-  - [ ] VirusTotal
+  * [x] MalwareBazaar
+  * [x] AbuseIPDB
+  * [ ] AlienVault
+  * [ ] ThreatFox
+  * [ ] VirusTotal
 
 ## Installation
 
@@ -19,6 +20,7 @@ git clone https://github.com/yusif-v/Mimir.git
 cd Mimir
 pip install -r requirements.txt
 ```
+
 ## Usage
 
 ```bash
