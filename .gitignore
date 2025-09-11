@@ -28,6 +28,7 @@ env/
 *.cfg
 *.toml
 *.sqlite3
+.msh_history
 
 # -------------------------
 # IDEs & Editors
