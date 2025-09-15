@@ -1,6 +1,7 @@
 import subprocess
 import shlex
 import os
+import getpass
 import readline
 from integrations import malwareBazaar, abuseIPDB
 
@@ -20,14 +21,28 @@ HISTORY_FILE = os.path.expanduser(".msh_history")
 if os.path.exists(HISTORY_FILE):
     readline.read_history_file(HISTORY_FILE)
 
+def dedup():
+    seen = {}
+    for i in range(readline.get_current_history_length(), 0, -1):
+        cmd = readline.get_history_item(i)
+        if cmd in seen:
+            readline.remove_history_item(i-1)
+        else:
+            seen[cmd]=True
+
+
 def mimir():
     print("Welcome to Mimir. Type 'help' for commands, 'exit' to quit.")
     while True:
-        raw = input("|> ").strip().lower()
+        user = getpass.getuser()
+        cwd = os.path.basename(os.getcwd()) or "/"
+        prompt = f"\033[92m[{user}]\033[0m\033[96m[{cwd}]\033[0m|> "
+        raw = input(prompt).strip().lower()
         if not raw:
             continue
 
         readline.add_history(raw)
+        dedup()
 
         parts = shlex.split(raw)
         command, *args = parts
@@ -37,7 +52,7 @@ def mimir():
             break
 
         elif command == "help":
-            print("Available commands: help, exit, history, hash, ipcheck")
+            print("Available commands: help, exit, mhistory, hash, ipcheck")
 
         elif command == "mhistory":
             for i in range(1, readline.get_current_history_length() + 1):
