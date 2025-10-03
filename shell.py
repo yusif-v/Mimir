@@ -2,9 +2,7 @@ import subprocess
 import shlex
 import os
 import getpass
-import readline
 from integrations import malwareBazaar, abuseIPDB
-
 
 def get_hash(args):
     result = subprocess.run(
@@ -16,51 +14,39 @@ def get_hash(args):
     print(result.stdout.strip().split()[0])
     malwareBazaar.mb_hash(result.stdout.strip().split()[0])
 
-
-HISTORY_FILE = os.path.expanduser(".msh_history")
-
-if os.path.exists(HISTORY_FILE):
-    readline.read_history_file(HISTORY_FILE)
-
-
-def dedup():
-    seen = {}
-    for i in range(readline.get_current_history_length(), 0, -1):
-        cmd = readline.get_history_item(i)
-        if cmd in seen:
-            readline.remove_history_item(i - 1)
-        else:
-            seen[cmd] = True
-
-
 def mimir():
     print("Welcome to Mimir. Type 'help' for commands, 'exit' to quit.")
     while True:
         user = getpass.getuser()
         cwd = os.path.basename(os.getcwd()) or "/"
         prompt = f"\033[92m[{user}]\033[0m\033[96m[{cwd}]\033[0m|> "
-        raw = input(prompt).strip().lower()
+        try:
+            raw = input(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting Mimir...")
+            break
+
         if not raw:
             continue
 
-        readline.add_history(raw)
-        dedup()
+        # Split into command + args
+        try:
+            parts = shlex.split(raw)
+        except ValueError as e:
+            print(f"Error parsing command: {e}")
+            continue
 
-        parts = shlex.split(raw)
         command, *args = parts
+        cmd = command.lower()
 
-        if command == "exit":
+        if cmd == "exit":
             print("Exiting Mimir...")
             break
 
-        elif command == "help":
-            print("Available commands: help, exit, mhistory, hash, ipcheck")
+        elif cmd == "help":
+            print("Available commands: help, exit, hash, ipcheck")
 
-        elif command == "mhistory":
-            for i in range(1, readline.get_current_history_length() + 1):
-                print(f"{i}: {readline.get_history_item(i)}")
-
-        elif command == "hash":
+        elif cmd == "hash":
             if not args:
                 print("Usage: hash <filename>, hash -h <hashstring>")
                 continue
@@ -76,16 +62,16 @@ def mimir():
             except subprocess.CalledProcessError as e:
                 print(f"Error: {e.stderr.strip()}")
 
-        elif command == "ipcheck":
-            if not args:
+        elif cmd == "ipcheck":
+            if len(args) != 1:
                 print("Usage: ipcheck <ip address>")
                 continue
 
-            elif bool(abuseIPDB.ip_regex.match(args[0])):
-                abuseIPDB.abuse_ip(args[0])
-                continue
-
-            print("Invalid IP address")
+            ip = args[0]
+            if abuseIPDB.ip_regex.match(ip):
+                abuseIPDB.abuse_ip(ip)
+            else:
+                print("Invalid IP address")
             continue
 
         else:
@@ -96,9 +82,6 @@ def mimir():
                 print(result.stdout)
             except subprocess.CalledProcessError as e:
                 print(f"Error: {e.stderr}")
-
-    readline.write_history_file(HISTORY_FILE)
-
 
 if __name__ == "__main__":
     mimir()
