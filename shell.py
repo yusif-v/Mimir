@@ -16,19 +16,21 @@ def get_hash(args):
     print(result.stdout.strip().split()[0])
     malwareBazaar.mb_hash(result.stdout.strip().split()[0])
 
+
 HISTORY_FILE = os.path.expanduser(".msh_history")
 
 if os.path.exists(HISTORY_FILE):
     readline.read_history_file(HISTORY_FILE)
+
 
 def dedup():
     seen = {}
     for i in range(readline.get_current_history_length(), 0, -1):
         cmd = readline.get_history_item(i)
         if cmd in seen:
-            readline.remove_history_item(i-1)
+            readline.remove_history_item(i - 1)
         else:
-            seen[cmd]=True
+            seen[cmd] = True
 
 
 def mimir():
@@ -96,6 +98,7 @@ def mimir():
                 print(f"Error: {e.stderr}")
 
     readline.write_history_file(HISTORY_FILE)
+
 
 if __name__ == "__main__":
     mimir()
