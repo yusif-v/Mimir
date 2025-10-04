@@ -30,7 +30,13 @@ def parse_history(history_file):
                     entries.append(cmd)
     except FileNotFoundError:
         return []
-    return entries[-50:]
+    unique_entries = []
+    seen = set()
+    for cmd in reversed(entries):
+        if cmd not in seen:
+            unique_entries.append(cmd)
+            seen.add(cmd)
+    return unique_entries[-50:][::-1]
 
 
 def display_history(history_file):
