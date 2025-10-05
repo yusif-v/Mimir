@@ -7,7 +7,6 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.completion import WordCompleter
 from integrations import malwareBazaar, abuseIPDB, urlHaus
-from integrations.urlHaus import urlcheck
 
 
 def get_hash(args):
@@ -89,7 +88,7 @@ def mimir():
             print("Exiting Mimir...")
             break
         elif cmd == "help":
-            print("Available commands: help, exit, hash, ipcheck, clear, mhistory")
+            print("Available commands: help, exit, hash, ipcheck, clear, mhistory, urlcheck")
         elif cmd == "clear":
             os.system("clear" if os.name != "nt" else "cls")
         elif cmd == "mhistory":

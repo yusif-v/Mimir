@@ -1,27 +1,30 @@
-# Mimir
+**Mimir v0.3 README**
 
-Mimir is a terminal-based DFIR arsenal that provides a fast, interactive interface for digital forensics, threat intelligence, and incident response workflows. It is designed to help analysts work efficiently from the terminal while being easily extensible.
+Mimir is a terminal-based DFIR arsenal for digital forensics, threat intelligence, and incident response with a fast, interactive interface. Easily extensible for efficient analyst workflows.
 
-## Features (v0.1)
+**Features (v0.3)**
 
-* Interactive REPL
-* Basic hash lookup
-* API integrations:
-  * [x] MalwareBazaar
-  * [x] AbuseIPDB
-  * [ ] AlienVault
-  * [ ] ThreatFox
-  * [ ] VirusTotal
+- Interactive REPL with shell history
+- Basic hash lookup
+- API integrations:
+  - [x] MalwareBazaar
+  - [x] AbuseIPDB
+  - [x] URLhaus
+  - [ ] AlienVault
+  - [ ] ThreatFox
+  - [ ] VirusTotal
+  - [ ] Wayback Machine
+- Enhanced shell improvements
 
-## Installation
+**Installation**
 
 ```bash
 git clone https://github.com/yusif-v/Mimir.git
 cd Mimir
-pip install -r requirements.txt
+python setup.py
 ```
 
-## Usage
+**Usage**
 
 ```bash
 python main.py
