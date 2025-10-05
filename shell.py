@@ -5,7 +5,9 @@ import getpass
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
-from integrations import malwareBazaar, abuseIPDB
+from prompt_toolkit.completion import WordCompleter
+from integrations import malwareBazaar, abuseIPDB, urlHaus
+from integrations.urlHaus import urlcheck
 
 
 def get_hash(args):
@@ -61,7 +63,10 @@ def mimir():
         message=prompt,
         history=FileHistory(history_file)
     )
-    valid_commands = {"help", "exit", "hash", "ipcheck", "clear", "mhistory"}
+    commands = ['help', 'exit', 'hash', 'ipcheck', 'clear', 'mhistory', 'urlcheck']
+
+    mimir_completer = WordCompleter(commands, ignore_case=True)
+    session = PromptSession(message=prompt, history=FileHistory(history_file), completer=mimir_completer)
 
     while True:
         try:
@@ -112,6 +117,12 @@ def mimir():
             else:
                 print("Invalid IP address")
             continue
+        elif cmd == "urlcheck":
+            if len(args) != 1:
+                print("Usage: urlcheck <url>")
+                continue
+            url = args[0]
+            urlHaus.urlcheck(url)
         else:
             try:
                 result = subprocess.run(
