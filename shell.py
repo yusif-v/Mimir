@@ -2,6 +2,7 @@ import subprocess
 import shlex
 import os
 import getpass
+from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
@@ -54,11 +55,13 @@ def display_history(history_file):
 
 def mimir():
     print("Welcome to Mimir. Type 'help' for commands, 'exit' to quit.")
-    history_file = os.path.expanduser("~/.mhistory")
+    load_dotenv()
+    mimir_path = os.path.expanduser(os.getenv("MIMIR_PATH", "~/Mimir"))
+    history_file = os.path.expanduser(f"{mimir_path}/.mhistory")
     user = getpass.getuser()
     cwd = os.path.basename(os.getcwd()) or "/"
     prompt = ANSI(f"\033[92m[{user}]\033[0m\033[96m[{cwd}]\033[0m|> ")
-    session = PromptSession(
+    PromptSession(
         message=prompt,
         history=FileHistory(history_file)
     )

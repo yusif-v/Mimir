@@ -1,76 +1,88 @@
 import os
-import shutil
+import subprocess
+import venv
 from dotenv import load_dotenv
 
 HOME_DIR = os.path.expanduser("~")
 PROJECT_DIR = os.path.join(HOME_DIR, "Mimir")
-ENV_FILE = os.path.join(PROJECT_DIR, ".env")
-ENV_SAMPLE_FILE = os.path.join(os.path.dirname(__file__), "env.sample")
-HISTORY_FILE = os.path.join(PROJECT_DIR, ".mhistory")
 SUBDIRS = ["Investigations", "Reports"]
-
 API_KEYS = ["OTX_API_KEY", "ABUSE_API_KEY", "ACH_API_KEY", "VT_API_KEY"]
+VENV_DIR = os.path.join(PROJECT_DIR, ".venv")
+REQUIREMENTS_FILE = os.path.join(os.path.dirname(__file__), "requirements.txt")
+
 
 def create_structure():
-    """Ensure required directories and files exist under ~/Mimir."""
     messages = []
 
-    os.makedirs(PROJECT_DIR, exist_ok=True)
+    if not os.path.exists(PROJECT_DIR):
+        os.makedirs(PROJECT_DIR)
+        messages.append(f"[setup] Created main folder: {PROJECT_DIR}")
 
-    for subdir in SUBDIRS:
-        path = os.path.join(PROJECT_DIR, subdir)
+    for sub in SUBDIRS:
+        path = os.path.join(PROJECT_DIR, sub)
         if not os.path.exists(path):
             os.makedirs(path)
-            messages.append(f"[setup] Created directory: {path}")
+            messages.append(f"[setup] Created subfolder: {sub}")
 
-    if not os.path.exists(ENV_FILE):
-        if os.path.exists(ENV_SAMPLE_FILE):
-            shutil.copy(ENV_SAMPLE_FILE, ENV_FILE)
-            messages.append("[setup] No .env found. Created from env.sample.")
-        else:
-            with open(ENV_FILE, "w") as f:
-                f.write("# Add your API keys here\n")
-                for key in API_KEYS:
-                    f.write(f"{key}=\n")
-            messages.append("[setup] No .env found. Created an empty one.")
+    env_path = os.path.join(PROJECT_DIR, ".env")
+    if not os.path.exists(env_path):
+        with open(env_path, "w") as f:
+            f.write("# Mimir Environment Variables\n")
+            for key in API_KEYS:
+                f.write(f"{key}=\n")
+        messages.append(f"[setup] Created .env file at {env_path}")
 
-    # .m_history
-    if not os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "w") as f:
-            f.write("# Mimir history file\n")
-        messages.append("[setup] .m_history created.")
+    return messages
+
+
+def setup_virtualenv():
+    messages = []
+
+    if not os.path.exists(VENV_DIR):
+        venv.create(VENV_DIR, with_pip=True)
+        messages.append(f"[setup] Created virtual environment at {VENV_DIR}")
+    else:
+        messages.append("[setup] Virtual environment already exists.")
+
+    pip_executable = os.path.join(VENV_DIR, "bin", "pip") if os.name != "nt" else os.path.join(VENV_DIR, "Scripts", "pip.exe")
+
+    if os.path.exists(REQUIREMENTS_FILE):
+        try:
+            subprocess.check_call([pip_executable, "install", "-r", REQUIREMENTS_FILE])
+            messages.append("[setup] Installed dependencies from requirements.txt.")
+        except subprocess.CalledProcessError:
+            messages.append("[setup] Failed to install dependencies.")
+    else:
+        messages.append("[setup] requirements.txt not found; skipped dependency installation.")
 
     return messages
 
 
 def env_check():
-    """Load and check API keys."""
-    load_dotenv(ENV_FILE)
+    env_path = os.path.join(PROJECT_DIR, ".env")
+    load_dotenv(env_path)
 
-    missing = []
-    for key in API_KEYS:
-        value = os.getenv(key)
-        if not value:
-            missing.append(key)
-
-    messages = []
-    if not missing:
-        return messages
-    elif len(missing) == len(API_KEYS):
-        messages.append("[setup] No API keys configured. Add at least one in .env.")
-    else:
-        messages.append(f"[setup] Some keys missing: {', '.join(missing)}")
-
-    return messages
+    missing = [k for k in API_KEYS if not os.getenv(k)]
+    if missing:
+        return [f"[setup] Missing API keys: {', '.join(missing)}"]
+    return ["[setup] All API keys are configured."]
 
 
 def setup():
-    """Run structure + env check. Print only if changes/missing."""
     messages = []
     messages.extend(create_structure())
+    messages.extend(setup_virtualenv())
     messages.extend(env_check())
 
     for msg in messages:
         print(msg)
 
     return not ("No API keys configured" in " ".join(messages))
+
+
+if __name__ == "__main__":
+    success = setup()
+    if success:
+        print("\nMimir setup completed successfully.")
+    else:
+        print("\nMimir setup completed, but some API keys are missing.")
