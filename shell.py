@@ -2,46 +2,32 @@ import subprocess
 import shlex
 import os
 import getpass
-from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, Completion
 from integrations import malwareBazaar, abuseIPDB, urlHaus
 
-load_dotenv()
 path = os.path.expanduser(os.getenv("MIMIR_PATH"))
 
-def get_hash(args):
-    result = subprocess.run(
-        ["sha256sum", *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    print(result.stdout.strip().split()[0])
-    malwareBazaar.mb_hash(result.stdout.strip().split()[0])
+class MimirCompleter(Completer):
+    def __init__(self, commands):
+        self.commands = commands
 
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.lstrip()
+        if " " not in text and not text.startswith(" "):
+            for cmd in self.commands:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
 
 def parse_history(history_file):
-    entries = []
     try:
         with open(history_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    cmd = line[1:].strip() if line.startswith("+") else line
-                    entries.append(cmd)
+            entries = [line.strip() for line in f if line.strip() and not line.startswith(("#", "+"))]
+        return list(dict.fromkeys(entries[-50:]))[::-1]
     except FileNotFoundError:
         return []
-    unique_entries = []
-    seen = set()
-    for cmd in reversed(entries):
-        if cmd not in seen:
-            unique_entries.append(cmd)
-            seen.add(cmd)
-    return unique_entries[-50:][::-1]
-
 
 def display_history(history_file):
     entries = parse_history(history_file)
@@ -54,41 +40,69 @@ def display_history(history_file):
     for i, cmd in enumerate(entries, 1):
         print(f"{i:<4} {cmd:<{max_cmd_len}}")
 
+def save_history(history_file, command):
+    os.makedirs(os.path.dirname(history_file), exist_ok=True)
+    with open(history_file, "a") as f:
+        f.write(command + "\n")
 
-def case_manager(case):
+def case_manager(case, action):
     if not path:
         print("Error: MIMIR_PATH is not set in your environment.")
-        return
+        return None
 
     investigations_path = os.path.join(path, "Investigations")
     os.makedirs(investigations_path, exist_ok=True)
     case_path = os.path.join(investigations_path, case)
 
+    actions = {
+        "create": lambda: create_case(case_path, case),
+        "open": lambda: open_case(case_path, case),
+    }
+
+    action_func = actions.get(action)
+    if action_func:
+        return action_func()
+    else:
+        print(f"Unknown action: {action}")
+        return None
+
+def create_case(case_path, case):
     if os.path.exists(case_path):
         print(f"Case '{case}' already exists at {case_path}")
+        return None
     else:
         os.makedirs(case_path)
         print(f"New case created: {case_path}")
+        os.chdir(case_path)
+        return case
 
+def open_case(case_path, case):
+    if os.path.exists(case_path):
+        os.chdir(case_path)
+        print(f"Opened case: {case_path}")
+        return case
+    else:
+        print(f"Case '{case}' does not exist at {case_path}")
+        return None
+
+def get_prompt(user, case=None):
+    cwd = os.path.basename(os.getcwd()) or "/"
+    if case:
+        return ANSI(f"\033[92m[{user}]\033[0m\033[96m[mimir]\033[0m\033[93m[{case}]\033[0m|> ")
+    return ANSI(f"\033[92m[{user}]\033[0m\033[96m[{cwd}]\033[0m|> ")
 
 def mimir():
     print("Welcome to Mimir. Type 'help' for commands, 'exit' to quit.")
-    load_dotenv()
-    mimir_path = os.path.expanduser(os.getenv("MIMIR_PATH", "~/Mimir"))
-    history_file = os.path.expanduser(f"{mimir_path}/.mhistory")
+    history_file = os.path.expanduser(f"{path}/.mhistory")
     user = getpass.getuser()
-    cwd = os.path.basename(os.getcwd()) or "/"
-    prompt = ANSI(f"\033[92m[{user}]\033[0m\033[96m[{cwd}]\033[0m|> ")
-    PromptSession(
-        message=prompt,
-        history=FileHistory(history_file)
-    )
+    current_case = None
     commands = ['help', 'exit', 'hash', 'ipcheck', 'clear', 'mhistory', 'urlcheck', 'case']
-
-    mimir_completer = WordCompleter(commands, ignore_case=True)
-    session = PromptSession(message=prompt, history=FileHistory(history_file), completer=mimir_completer)
+    mimir_completer = MimirCompleter(commands)
+    case_options = ["-n", "-o"]
 
     while True:
+        prompt = get_prompt(user, current_case)
+        session = PromptSession(message=prompt, history=FileHistory(history_file), completer=mimir_completer)
         try:
             raw = session.prompt().strip()
         except (EOFError, KeyboardInterrupt):
@@ -96,6 +110,7 @@ def mimir():
             break
         if not raw:
             continue
+        save_history(history_file, raw)
         try:
             parts = shlex.split(raw)
         except ValueError as e:
@@ -109,7 +124,7 @@ def mimir():
             print("Exiting Mimir...")
             break
         elif cmd == "help":
-            print("Available commands: help, exit, hash, ipcheck, clear, mhistory, urlcheck")
+            print("Available commands: " + ", ".join(commands))
         elif cmd == "clear":
             os.system("clear" if os.name != "nt" else "cls")
         elif cmd == "mhistory":
@@ -124,7 +139,7 @@ def mimir():
                 malwareBazaar.mb_hash(hashstring)
                 continue
             try:
-                get_hash(args)
+                malwareBazaar.get_hash(args)
             except subprocess.CalledProcessError as e:
                 print(f"Error: {e.stderr.strip()}")
         elif cmd == "ipcheck":
@@ -143,14 +158,15 @@ def mimir():
                 continue
             url = args[0]
             urlHaus.urlcheck(url)
-
         elif cmd == "case":
-            if len(args) < 2 or args[0] != "-n":
-                print('Usage: case -n "case name"')
+            if len(args) < 2 or args[0] not in case_options:
+                print(f"Usage: case [{' | '.join(case_options)}] \"case name\"")
                 continue
+            action = {"-n": "create", "-o": "open"}.get(args[0])
             case_name = args[1].strip('"')
-            case_manager(case_name)
-
+            new_case = case_manager(case_name, action)
+            if new_case:
+                current_case = new_case
         else:
             try:
                 result = subprocess.run(
@@ -159,7 +175,6 @@ def mimir():
                 print(result.stdout)
             except subprocess.CalledProcessError as e:
                 print(f"Error: {e.stderr}")
-
 
 if __name__ == "__main__":
     mimir()
