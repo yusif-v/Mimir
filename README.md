@@ -7,7 +7,7 @@ Mimir is a terminal-based DFIR arsenal for digital forensics, threat intelligenc
 - Interactive REPL with improved shell history
 - Command autocompletion
 - Case management 
-- Basic hash lookup
+- Basic hash, ip, domain lookup
 - API integrations:
   - [x] MalwareBazaar
   - [x] AbuseIPDB
