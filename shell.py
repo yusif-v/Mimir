@@ -57,6 +57,7 @@ def case_manager(case, action):
     actions = {
         "create": lambda: create_case(case_path, case),
         "open": lambda: open_case(case_path, case),
+        "close": lambda: close_case(case_path, case)
     }
 
     action_func = actions.get(action)
@@ -85,6 +86,12 @@ def open_case(case_path, case):
         print(f"Case '{case}' does not exist at {case_path}")
         return None
 
+def close_case(case_path, case):
+    print(f"{case} is closed")
+    parent_dir = os.path.dirname(os.path.dirname(case_path))
+    os.chdir(parent_dir)
+    return None
+
 def get_prompt(user, case=None):
     cwd = os.path.basename(os.getcwd()) or "/"
     if case:
@@ -98,7 +105,7 @@ def mimir():
     current_case = None
     commands = ['help', 'exit', 'hash', 'ipcheck', 'clear', 'mhistory', 'urlcheck', 'case']
     mimir_completer = MimirCompleter(commands)
-    case_options = ["-n", "-o"]
+    case_options = ["-n", "-o", "-c"]
 
     while True:
         prompt = get_prompt(user, current_case)
@@ -162,10 +169,15 @@ def mimir():
             if len(args) < 2 or args[0] not in case_options:
                 print(f"Usage: case [{' | '.join(case_options)}] \"case name\"")
                 continue
-            action = {"-n": "create", "-o": "open"}.get(args[0])
+
+            action = {"-n": "create", "-o": "open", "-c": "close"}.get(args[0])
             case_name = args[1].strip('"')
+
             new_case = case_manager(case_name, action)
-            if new_case:
+
+            if action == "close":
+                current_case = None
+            elif new_case:
                 current_case = new_case
         else:
             try:
