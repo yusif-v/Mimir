@@ -83,7 +83,7 @@ def mimir():
         message=prompt,
         history=FileHistory(history_file)
     )
-    commands = ['help', 'exit', 'hash', 'ipcheck', 'clear', 'mhistory', 'urlcheck']
+    commands = ['help', 'exit', 'hash', 'ipcheck', 'clear', 'mhistory', 'urlcheck', 'case']
 
     mimir_completer = WordCompleter(commands, ignore_case=True)
     session = PromptSession(message=prompt, history=FileHistory(history_file), completer=mimir_completer)
