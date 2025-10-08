@@ -9,6 +9,8 @@ from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.completion import WordCompleter
 from integrations import malwareBazaar, abuseIPDB, urlHaus
 
+load_dotenv()
+path = os.path.expanduser(os.getenv("MIMIR_PATH"))
 
 def get_hash(args):
     result = subprocess.run(
@@ -51,6 +53,22 @@ def display_history(history_file):
     print("-" * (max_cmd_len + 6))
     for i, cmd in enumerate(entries, 1):
         print(f"{i:<4} {cmd:<{max_cmd_len}}")
+
+
+def case_manager(case):
+    if not path:
+        print("Error: MIMIR_PATH is not set in your environment.")
+        return
+
+    investigations_path = os.path.join(path, "Investigations")
+    os.makedirs(investigations_path, exist_ok=True)
+    case_path = os.path.join(investigations_path, case)
+
+    if os.path.exists(case_path):
+        print(f"Case '{case}' already exists at {case_path}")
+    else:
+        os.makedirs(case_path)
+        print(f"New case created: {case_path}")
 
 
 def mimir():
@@ -125,6 +143,14 @@ def mimir():
                 continue
             url = args[0]
             urlHaus.urlcheck(url)
+
+        elif cmd == "case":
+            if len(args) < 2 or args[0] != "-n":
+                print('Usage: case -n "case name"')
+                continue
+            case_name = args[1].strip('"')
+            case_manager(case_name)
+
         else:
             try:
                 result = subprocess.run(
