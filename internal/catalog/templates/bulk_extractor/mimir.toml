@@ -1,0 +1,19 @@
+[tool]
+name = "bulk_extractor"
+description = "Disk/memory feature carving with bulk_extractor"
+category = "forensics"
+tags = ["carving", "artifacts"]
+
+[docker]
+image = "dfir-bulk-extractor:latest"
+workdir = "/output"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/output"
+mode = "rw"

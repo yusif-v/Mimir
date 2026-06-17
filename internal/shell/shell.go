@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/yusif-v/mimir/internal/cases"
+	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
 	"github.com/yusif-v/mimir/internal/tools"
@@ -133,6 +135,10 @@ func (a *App) dispatch(line string) error {
 		return a.cmdTools(args)
 	case "run":
 		return a.cmdRun(args)
+	case "install":
+		return a.cmdInstall(args)
+	case "build":
+		return a.cmdBuild(args)
 	case "use":
 		return a.cmdUse(args)
 	case "note":
@@ -152,6 +158,8 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %scases%s      list all cases\n", colorGreen, colorReset)
 	fmt.Printf("  %stools%s      list registered tools\n", colorGreen, colorReset)
 	fmt.Printf("  %srun%s        run a tool: run <name> [args...]\n", colorGreen, colorReset)
+	fmt.Printf("  %sinstall%s    install a tool from the catalog: install <name>\n", colorGreen, colorReset)
+	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
@@ -227,23 +235,73 @@ func (a *App) cmdCases(args []string) error {
 	return nil
 }
 
-func (a *App) cmdTools(args []string) error {
-	toolList := a.Tools.List("")
-	if len(toolList) == 0 {
-		fmt.Println("No tools registered.")
-		return nil
+func statusBadge(s tools.Status) (string, string) {
+	switch s {
+	case tools.StatusReady:
+		return s.String(), colorGreen
+	case tools.StatusNotBuilt:
+		return s.String(), colorYellow
+	case tools.StatusDockerOff:
+		return s.String(), colorDim
+	case tools.StatusMissing:
+		return s.String(), colorRed
+	default:
+		return s.String(), colorReset
 	}
-	for _, t := range toolList {
-		mode := "local"
-		modeColor := colorCyan
-		if t.RunsInDocker() {
-			mode = "docker"
-			modeColor = colorYellow
+}
+
+func (a *App) cmdTools(args []string) error {
+	installed := a.Tools.List("")
+	statuses, dockerUp := a.Runner.ResolveStatuses(installed)
+
+	// INSTALLED section
+	if len(installed) == 0 {
+		fmt.Println("No tools installed.")
+	} else {
+		fmt.Printf("%sINSTALLED%s\n", colorCyan, colorReset)
+		for _, t := range installed {
+			mode := "local"
+			if t.RunsInDocker() {
+				mode = "docker"
+			}
+			label, color := statusBadge(statuses[t.Name])
+			fmt.Printf("  %s%-16s%s [%s] %s%-10s%s %s\n",
+				colorGreen, t.Name, colorReset,
+				mode,
+				color, label, colorReset,
+				t.Description)
 		}
-		fmt.Printf("  %s%-20s%s [%s%-6s%s] %s\n",
-			colorGreen, t.Name, colorReset,
-			modeColor, mode, colorReset,
-			t.Description)
+	}
+
+	// AVAILABLE section = catalog minus already-installed
+	installedNames := map[string]bool{}
+	for _, t := range installed {
+		installedNames[t.Name] = true
+	}
+	entries, err := catalog.List()
+	if err != nil {
+		return fmt.Errorf("read catalog: %w", err)
+	}
+	var available []catalog.Entry
+	for _, e := range entries {
+		if !installedNames[e.Name] {
+			available = append(available, e)
+		}
+	}
+	if len(available) > 0 {
+		fmt.Printf("\n%sAVAILABLE%s (install <name>)\n", colorCyan, colorReset)
+		for _, e := range available {
+			fmt.Printf("  %s%-16s%s %-12s %s\n",
+				colorGreen, e.Name, colorReset,
+				e.Category, e.Description)
+		}
+	}
+
+	// docker footer
+	if dockerUp {
+		fmt.Printf("\ndocker: %srunning%s\n", colorGreen, colorReset)
+	} else {
+		fmt.Printf("\ndocker: %snot available%s\n", colorRed, colorReset)
 	}
 	return nil
 }
@@ -320,6 +378,74 @@ func (a *App) cmdShell(line string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	return cmd.Run()
+}
+
+// buildImage builds a Docker image from a template directory by shelling out
+// to the docker CLI. Isolated so the build backend can change without touching
+// callers.
+func buildImage(templateDir, imageTag string) error {
+	cmd := exec.Command("docker", "build", "-t", imageTag, templateDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (a *App) cmdInstall(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: install <tool_name>")
+	}
+	name := args[0]
+	if _, ok := catalog.Get(name); !ok {
+		return fmt.Errorf("unknown tool: %s (run 'tools' to see available)", name)
+	}
+
+	destDir := filepath.Join(a.Config.ToolsPath, name)
+	if _, err := os.Stat(destDir); err == nil {
+		return fmt.Errorf("%s already installed — use 'build %s' to rebuild", name, name)
+	}
+
+	if err := catalog.Install(name, destDir); err != nil {
+		return fmt.Errorf("install %s: %w", name, err)
+	}
+	fmt.Printf("Template installed: %s\n", destDir)
+
+	// Register the new template so the registry knows its image tag + path.
+	if err := a.Tools.DiscoverFromPath(a.Config.ToolsPath); err != nil {
+		return fmt.Errorf("register tool: %w", err)
+	}
+	def, ok := a.Tools.Get(name)
+	if !ok {
+		return fmt.Errorf("tool %s not found after install", name)
+	}
+
+	if def.RunsInDocker() {
+		fmt.Printf("%sBuilding image %s...%s\n", colorCyan, def.DockerImage, colorReset)
+		if err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage); err != nil {
+			return fmt.Errorf("build image: %w", err)
+		}
+	}
+	fmt.Printf("%s%s installed and ready.%s\n", colorGreen, name, colorReset)
+	return nil
+}
+
+func (a *App) cmdBuild(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: build <tool_name>")
+	}
+	name := args[0]
+	def, ok := a.Tools.Get(name)
+	if !ok {
+		return fmt.Errorf("%s is not installed — run 'install %s' first", name, name)
+	}
+	if !def.RunsInDocker() {
+		return fmt.Errorf("%s is a local tool — nothing to build", name)
+	}
+	fmt.Printf("%sBuilding image %s...%s\n", colorCyan, def.DockerImage, colorReset)
+	if err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage); err != nil {
+		return fmt.Errorf("build image: %w", err)
+	}
+	fmt.Printf("%s%s rebuilt.%s\n", colorGreen, name, colorReset)
+	return nil
 }
 
 // splitArgs splits a command line string into arguments, respecting quotes.

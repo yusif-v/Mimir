@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/pelletier/go-toml/v2"
 
@@ -435,4 +437,88 @@ func (oc *OutputCapture) Record(toolName, output, casePath string) error {
 		"path": outputFile,
 	})
 	return nil
+}
+
+// Status describes whether an installed tool is usable right now.
+type Status int
+
+const (
+	StatusReady     Status = iota // docker image present, or local cmd on PATH
+	StatusNotBuilt                // docker tool, image missing
+	StatusDockerOff               // docker tool, daemon unreachable
+	StatusMissing                 // local tool, cmd not on PATH
+)
+
+// String returns a short label for the status.
+func (s Status) String() string {
+	switch s {
+	case StatusReady:
+		return "ready"
+	case StatusNotBuilt:
+		return "not built"
+	case StatusDockerOff:
+		return "docker off"
+	case StatusMissing:
+		return "missing"
+	default:
+		return "unknown"
+	}
+}
+
+// normalizeTag appends :latest when an image reference has no explicit tag.
+func normalizeTag(ref string) string {
+	if ref == "" || strings.Contains(ref, ":") {
+		return ref
+	}
+	return ref + ":latest"
+}
+
+// resolveStatus is the pure decision: given the set of available image tags,
+// daemon reachability, and whether a local cmd was found, return a Status.
+func resolveStatus(d *Definition, imageSet map[string]bool, dockerUp, localFound bool) Status {
+	if d.RunsInDocker() {
+		if !dockerUp {
+			return StatusDockerOff
+		}
+		if imageSet[normalizeTag(d.DockerImage)] {
+			return StatusReady
+		}
+		return StatusNotBuilt
+	}
+	if localFound {
+		return StatusReady
+	}
+	return StatusMissing
+}
+
+// ResolveStatuses returns a status per tool name, plus whether docker is up.
+// It performs a single ImageList call (no per-tool round-trips).
+func (r *Runner) ResolveStatuses(defs []*Definition) (map[string]Status, bool) {
+	statuses := make(map[string]Status, len(defs))
+	imageSet := map[string]bool{}
+	dockerUp := r.dockerAvail
+
+	if dockerUp {
+		images, err := r.docker.ImageList(context.Background(), image.ListOptions{})
+		if err != nil {
+			dockerUp = false
+		} else {
+			for _, img := range images {
+				for _, tag := range img.RepoTags {
+					imageSet[tag] = true
+				}
+			}
+		}
+	}
+
+	for _, d := range defs {
+		localFound := false
+		if !d.RunsInDocker() && d.LocalCmd != "" {
+			if _, err := exec.LookPath(d.LocalCmd); err == nil {
+				localFound = true
+			}
+		}
+		statuses[d.Name] = resolveStatus(d, imageSet, dockerUp, localFound)
+	}
+	return statuses, dockerUp
 }
