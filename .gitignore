@@ -23,3 +23,7 @@ Thumbs.db
 # Mimir runtime
 Investigations/
 .mhistory
+
+# Internal docs (not user-facing)
+PLAN.md
+docs/
