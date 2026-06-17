@@ -187,9 +187,23 @@ func NewRunner(bus *events.Bus) *Runner {
 	}
 }
 
-// DockerAvailable returns true if Docker is reachable.
+// DockerAvailable returns true if a Docker client was constructed. Note this
+// reflects client setup only, not daemon reachability — use DockerReachable to
+// confirm the daemon is actually running.
 func (r *Runner) DockerAvailable() bool {
 	return r.dockerAvail
+}
+
+// DockerReachable pings the Docker daemon to confirm it is actually running,
+// not merely that a client was constructed.
+func (r *Runner) DockerReachable() bool {
+	if !r.dockerAvail || r.docker == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := r.docker.Ping(ctx)
+	return err == nil
 }
 
 // Run executes a tool with the given arguments.

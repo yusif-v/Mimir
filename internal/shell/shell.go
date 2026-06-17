@@ -419,6 +419,11 @@ func (a *App) cmdInstall(args []string) error {
 	}
 
 	if def.RunsInDocker() {
+		if !a.Runner.DockerReachable() {
+			fmt.Printf("%sTemplate installed, but Docker is not available — image not built.%s\n", colorYellow, colorReset)
+			fmt.Printf("Start Docker, then run '%sbuild %s%s' to build the image.\n", colorGreen, name, colorReset)
+			return nil
+		}
 		fmt.Printf("%sBuilding image %s...%s\n", colorCyan, def.DockerImage, colorReset)
 		if err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage); err != nil {
 			return fmt.Errorf("build image: %w", err)
@@ -439,6 +444,9 @@ func (a *App) cmdBuild(args []string) error {
 	}
 	if !def.RunsInDocker() {
 		return fmt.Errorf("%s is a local tool — nothing to build", name)
+	}
+	if !a.Runner.DockerReachable() {
+		return fmt.Errorf("docker is not available — start Docker and retry 'build %s'", name)
 	}
 	fmt.Printf("%sBuilding image %s...%s\n", colorCyan, def.DockerImage, colorReset)
 	if err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage); err != nil {
