@@ -1,6 +1,14 @@
 # Mimir Configuration
-cases_path: ~/Mimir/Investigations
-tools_path: ~/Mimir/tools
-log_path: ~/Mimir/logs
-history_path: ~/.mimir_history
+# Place this file at ~/.mimir/config.yaml
+
+# All paths default to ~/.mimir/ — override only what you need
+# home_dir: ~/.mimir
+# investigations: ~/.mimir/investigations
+# tools: ~/.mimir/tools
+# plugins: ~/.mimir/plugins
+# cache: ~/.mimir/cache
+# logs: ~/.mimir/logs
+# log_file: ~/.mimir/logs/mimir.log
+# history: ~/.mimir/.history
+
 log_level: INFO

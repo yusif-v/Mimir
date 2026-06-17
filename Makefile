@@ -1,4 +1,4 @@
-.PHONY: build test clean run lint
+.PHONY: build test clean run lint fmt
 
 BINARY=mimir
 CMD=./cmd/mimir
@@ -11,7 +11,6 @@ test:
 
 clean:
 	rm -f $(BINARY)
-	rm -rf ~/Mimir/Investigations/test-*
 
 run: build
 	./$(BINARY)
@@ -23,3 +22,11 @@ fmt:
 	go fmt ./...
 
 all: fmt lint test build
+
+# Generate a default config file
+config: build
+	./$(BINARY) config
+
+# Generate config to a custom path
+config-path: build
+	./$(BINARY) config $(HOME)/.mimir/config.yaml
