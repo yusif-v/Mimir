@@ -235,23 +235,73 @@ func (a *App) cmdCases(args []string) error {
 	return nil
 }
 
-func (a *App) cmdTools(args []string) error {
-	toolList := a.Tools.List("")
-	if len(toolList) == 0 {
-		fmt.Println("No tools registered.")
-		return nil
+func statusBadge(s tools.Status) (string, string) {
+	switch s {
+	case tools.StatusReady:
+		return s.String(), colorGreen
+	case tools.StatusNotBuilt:
+		return s.String(), colorYellow
+	case tools.StatusDockerOff:
+		return s.String(), colorDim
+	case tools.StatusMissing:
+		return s.String(), colorRed
+	default:
+		return s.String(), colorReset
 	}
-	for _, t := range toolList {
-		mode := "local"
-		modeColor := colorCyan
-		if t.RunsInDocker() {
-			mode = "docker"
-			modeColor = colorYellow
+}
+
+func (a *App) cmdTools(args []string) error {
+	installed := a.Tools.List("")
+	statuses, dockerUp := a.Runner.ResolveStatuses(installed)
+
+	// INSTALLED section
+	if len(installed) == 0 {
+		fmt.Println("No tools installed.")
+	} else {
+		fmt.Printf("%sINSTALLED%s\n", colorCyan, colorReset)
+		for _, t := range installed {
+			mode := "local"
+			if t.RunsInDocker() {
+				mode = "docker"
+			}
+			label, color := statusBadge(statuses[t.Name])
+			fmt.Printf("  %s%-16s%s [%s] %s%-10s%s %s\n",
+				colorGreen, t.Name, colorReset,
+				mode,
+				color, label, colorReset,
+				t.Description)
 		}
-		fmt.Printf("  %s%-20s%s [%s%-6s%s] %s\n",
-			colorGreen, t.Name, colorReset,
-			modeColor, mode, colorReset,
-			t.Description)
+	}
+
+	// AVAILABLE section = catalog minus already-installed
+	installedNames := map[string]bool{}
+	for _, t := range installed {
+		installedNames[t.Name] = true
+	}
+	entries, err := catalog.List()
+	if err != nil {
+		return fmt.Errorf("read catalog: %w", err)
+	}
+	var available []catalog.Entry
+	for _, e := range entries {
+		if !installedNames[e.Name] {
+			available = append(available, e)
+		}
+	}
+	if len(available) > 0 {
+		fmt.Printf("\n%sAVAILABLE%s (install <name>)\n", colorCyan, colorReset)
+		for _, e := range available {
+			fmt.Printf("  %s%-16s%s %-12s %s\n",
+				colorGreen, e.Name, colorReset,
+				e.Category, e.Description)
+		}
+	}
+
+	// docker footer
+	if dockerUp {
+		fmt.Printf("\ndocker: %srunning%s\n", colorGreen, colorReset)
+	} else {
+		fmt.Printf("\ndocker: %snot available%s\n", colorRed, colorReset)
 	}
 	return nil
 }
