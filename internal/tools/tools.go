@@ -2,10 +2,18 @@
 package tools
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/yusif-v/mimir/internal/events"
 )
@@ -20,17 +28,48 @@ type Definition struct {
 	TemplatePath string            `json:"template_path,omitempty"`
 	Tags         []string          `json:"tags" toml:"tags"`
 	Metadata     map[string]string `json:"metadata" toml:"metadata"`
+	// Parsed from mimir.toml
+	Volumes    []VolumeMapping `toml:"-"`
+	Entrypoint string          `toml:"-"`
+	WorkDir    string          `toml:"-"`
+}
+
+// VolumeMapping maps a host directory to a container directory.
+type VolumeMapping struct {
+	Host      string `toml:"host"`
+	Container string `toml:"container"`
+	Mode      string `toml:"mode"` // "ro" or "rw"
+}
+
+// ToolTemplate is the mimir.toml format.
+type ToolTemplate struct {
+	Tool struct {
+		Name        string   `toml:"name"`
+		Description string   `toml:"description"`
+		Category    string   `toml:"category"`
+		Tags        []string `toml:"tags"`
+	} `toml:"tool"`
+	Docker struct {
+		Image      string `toml:"image"`
+		Entrypoint string `toml:"entrypoint"`
+		WorkDir    string `toml:"workdir"`
+		Volumes    []struct {
+			Host      string `toml:"host"`
+			Container string `toml:"container"`
+			Mode      string `toml:"mode"`
+		} `toml:"volumes"`
+	} `toml:"docker"`
+}
+
+// RunsInDocker returns true if this tool uses a Docker image.
+func (d *Definition) RunsInDocker() bool {
+	return d.DockerImage != ""
 }
 
 // Registry holds all registered tools.
 type Registry struct {
 	events *events.Bus
 	tools  map[string]*Definition
-}
-
-// RunsInDocker returns true if this tool uses a Docker image.
-func (d *Definition) RunsInDocker() bool {
-	return d.DockerImage != ""
 }
 
 // NewRegistry creates a new tool registry.
@@ -63,7 +102,7 @@ func (r *Registry) List(category string) []*Definition {
 	return result
 }
 
-// DiscoverFromPath scans a directory for tool templates.
+// DiscoverFromPath scans a directory for tool templates (mimir.toml files).
 func (r *Registry) DiscoverFromPath(path string) error {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -72,27 +111,83 @@ func (r *Registry) DiscoverFromPath(path string) error {
 		}
 		return err
 	}
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		templatePath := filepath.Join(path, entry.Name(), "mimir.toml")
-		if _, err := os.Stat(templatePath); err == nil {
-			// TODO: parse TOML template
-			_ = templatePath
+		data, err := os.ReadFile(templatePath)
+		if err != nil {
+			continue
 		}
+
+		def, err := ParseTemplate(data, templatePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to parse %s: %v\n", templatePath, err)
+			continue
+		}
+		r.Register(def)
 	}
 	return nil
 }
 
+// ParseTemplate parses a mimir.toml file into a Definition.
+func ParseTemplate(data []byte, path string) (*Definition, error) {
+	var tmpl ToolTemplate
+	if err := toml.Unmarshal(data, &tmpl); err != nil {
+		return nil, fmt.Errorf("parse toml: %w", err)
+	}
+
+	def := &Definition{
+		Name:        tmpl.Tool.Name,
+		Description: tmpl.Tool.Description,
+		Category:    tmpl.Tool.Category,
+		DockerImage: tmpl.Docker.Image,
+		Tags:        tmpl.Tool.Tags,
+		TemplatePath: path,
+		Entrypoint:  tmpl.Docker.Entrypoint,
+		WorkDir:     tmpl.Docker.WorkDir,
+		Metadata:    map[string]string{},
+	}
+
+	for _, v := range tmpl.Docker.Volumes {
+		mode := v.Mode
+		if mode == "" {
+			mode = "rw"
+		}
+		def.Volumes = append(def.Volumes, VolumeMapping{
+			Host:      v.Host,
+			Container: v.Container,
+			Mode:      mode,
+		})
+	}
+
+	return def, nil
+}
+
 // Runner executes tools locally or in Docker.
 type Runner struct {
-	events *events.Bus
+	events      *events.Bus
+	docker      *client.Client
+	dockerAvail bool
 }
 
 // NewRunner creates a new tool runner.
 func NewRunner(bus *events.Bus) *Runner {
-	return &Runner{events: bus}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerAvail := err == nil
+
+	return &Runner{
+		events:      bus,
+		docker:      cli,
+		dockerAvail: dockerAvail,
+	}
+}
+
+// DockerAvailable returns true if Docker is reachable.
+func (r *Runner) DockerAvailable() bool {
+	return r.dockerAvail
 }
 
 // Run executes a tool with the given arguments.
@@ -108,17 +203,100 @@ func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 		StartedAt: time.Now(),
 	}
 
-	if tool.DockerImage != "" {
-		result.Error = fmt.Errorf("docker execution not yet implemented")
+	if tool.RunsInDocker() {
+		if !r.dockerAvail {
+			result.Error = fmt.Errorf("docker is not available — is Docker running?")
+			result.FinishedAt = time.Now()
+			r.events.Emit(events.ToolError, map[string]any{
+				"tool":  tool.Name,
+				"error": result.Error,
+			})
+			return result
+		}
+		return r.runDocker(tool, args, casePath, result)
+	}
+
+	if tool.LocalCmd != "" {
+		return r.runLocal(tool.LocalCmd, args, result)
+	}
+
+	result.Error = fmt.Errorf("no execution method for tool '%s'", tool.Name)
+	result.FinishedAt = time.Now()
+	return result
+}
+
+func (r *Runner) runDocker(tool *Definition, args []string, casePath string, result *Result) *Result {
+	ctx := context.Background()
+
+	// Build volume mounts
+	var binds []string
+	for _, v := range tool.Volumes {
+		// Resolve ${CASE_PATH} placeholder
+		hostPath := v.Host
+		if hostPath == "${CASE_PATH}" || hostPath == "evidence" {
+			hostPath = filepath.Join(casePath, "evidence")
+		} else if hostPath == "output" {
+			hostPath = filepath.Join(casePath, "output")
+		}
+
+		// Ensure host directory exists
+		os.MkdirAll(hostPath, 0755)
+
+		mode := v.Mode
+		if mode == "" {
+			mode = "rw"
+		}
+		binds = append(binds, fmt.Sprintf("%s:%s:%s", hostPath, v.Container, mode))
+	}
+
+	// If no volumes defined, auto-mount case directories
+	if len(binds) == 0 && casePath != "" {
+		evidenceDir := filepath.Join(casePath, "evidence")
+		outputDir := filepath.Join(casePath, "output")
+		os.MkdirAll(evidenceDir, 0755)
+		os.MkdirAll(outputDir, 0755)
+		binds = append(binds,
+			fmt.Sprintf("%s:/evidence:ro", evidenceDir),
+			fmt.Sprintf("%s:/output:rw", outputDir),
+		)
+	}
+
+	// Container config
+	containerConfig := &container.Config{
+		Image: tool.DockerImage,
+		Cmd:   args,
+	}
+	if tool.WorkDir != "" {
+		containerConfig.WorkingDir = tool.WorkDir
+	}
+	if tool.Entrypoint != "" {
+		containerConfig.Entrypoint = []string{tool.Entrypoint}
+	}
+
+	hostConfig := &container.HostConfig{
+		Binds: binds,
+	}
+
+	// Create container
+	resp, err := r.docker.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, "")
+	if err != nil {
+		result.Error = fmt.Errorf("docker create: %w", err)
+		result.FinishedAt = time.Now()
 		r.events.Emit(events.ToolError, map[string]any{
 			"tool":  tool.Name,
 			"error": result.Error,
 		})
 		return result
 	}
+	containerID := resp.ID
+	defer func() {
+		// Clean up container after run
+		r.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+	}()
 
-	if tool.LocalCmd != "" {
-		result.Error = fmt.Errorf("local execution not yet implemented")
+	// Start container
+	if err := r.docker.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		result.Error = fmt.Errorf("docker start: %w", err)
 		result.FinishedAt = time.Now()
 		r.events.Emit(events.ToolError, map[string]any{
 			"tool":  tool.Name,
@@ -127,8 +305,81 @@ func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 		return result
 	}
 
-	result.Error = fmt.Errorf("no execution method for tool '%s'", tool.Name)
+	// Wait for container to finish
+	statusCh, errCh := r.docker.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			result.Error = fmt.Errorf("docker wait: %w", err)
+			result.FinishedAt = time.Now()
+			r.events.Emit(events.ToolError, map[string]any{
+				"tool":  tool.Name,
+				"error": result.Error,
+			})
+			return result
+		}
+	case status := <-statusCh:
+		result.ReturnCode = int(status.StatusCode)
+	}
+
+	// Capture stdout/stderr
+	logs, err := r.docker.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
+	if err != nil {
+		result.Error = fmt.Errorf("docker logs: %w", err)
+	} else {
+		var buf bytes.Buffer
+		io.Copy(&buf, logs)
+		result.Stdout = buf.String()
+	}
+
 	result.FinishedAt = time.Now()
+
+	if result.ReturnCode == 0 {
+		r.events.Emit(events.ToolFinished, map[string]any{
+			"tool":   tool.Name,
+			"output": result.Stdout,
+		})
+	} else {
+		result.Error = fmt.Errorf("container exited with code %d", result.ReturnCode)
+		r.events.Emit(events.ToolError, map[string]any{
+			"tool":  tool.Name,
+			"error": result.Error,
+		})
+	}
+
+	return result
+}
+
+func (r *Runner) runLocal(cmd string, args []string, result *Result) *Result {
+	fullArgs := append([]string{cmd}, args...)
+	command := exec.Command(fullArgs[0], fullArgs[1:]...)
+
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	if err := command.Run(); err != nil {
+		result.Error = err
+		result.ReturnCode = 1
+	}
+	result.Stdout = stdout.String()
+	result.Stderr = stderr.String()
+	result.FinishedAt = time.Now()
+
+	if result.Error == nil {
+		r.events.Emit(events.ToolFinished, map[string]any{
+			"tool":   result.Tool,
+			"output": result.Stdout,
+		})
+	} else {
+		r.events.Emit(events.ToolError, map[string]any{
+			"tool":  result.Tool,
+			"error": result.Error,
+		})
+	}
 	return result
 }
 

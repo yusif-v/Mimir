@@ -43,6 +43,11 @@ func NewApp(cfg *config.Config) *App {
 	toolRunner := tools.NewRunner(bus)
 	outputCapture := tools.NewOutputCapture(bus)
 
+	// Discover tools from the tools directory
+	if err := toolRegistry.DiscoverFromPath(cfg.ToolsPath); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: tool discovery failed: %v\n", err)
+	}
+
 	return &App{
 		Config: cfg,
 		Events: bus,
