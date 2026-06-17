@@ -85,12 +85,18 @@ func (c *Case) AddToolUsage(tool string) {
 	c.ToolsUsed = append(c.ToolsUsed, tool)
 }
 
-// AddNote adds a note to the case.
-func (c *Case) AddNote(content, author string) {
+// AddNote adds a note to the case and records it on the timeline.
+func (c *Case) AddNote(content, author string) error {
+	ts := time.Now().Format(time.RFC3339)
 	c.Notes = append(c.Notes, Note{
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: ts,
 		Author:    author,
 		Content:   content,
+	})
+	return c.AppendEvent(TimelineEvent{
+		Type:      "note",
+		Timestamp: ts,
+		Payload:   map[string]any{"author": author, "content": content},
 	})
 }
 

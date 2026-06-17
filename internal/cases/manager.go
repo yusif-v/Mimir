@@ -60,6 +60,13 @@ func (m *Manager) Open(name string) (*Case, error) {
 
 	m.current = c
 	os.Chdir(path)
+	if err := c.AppendEvent(TimelineEvent{
+		Type:      "case_opened",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Payload:   map[string]any{},
+	}); err != nil {
+		return nil, fmt.Errorf("record open event: %w", err)
+	}
 	m.events.Emit(events.CaseOpened, map[string]any{"case": c})
 	return c, nil
 }
@@ -74,6 +81,14 @@ func (m *Manager) Close() error {
 	m.current.ClosedAt = time.Now().Format(time.RFC3339)
 	if err := m.current.Save(); err != nil {
 		return fmt.Errorf("save case: %w", err)
+	}
+
+	if err := m.current.AppendEvent(TimelineEvent{
+		Type:      "case_closed",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Payload:   map[string]any{},
+	}); err != nil {
+		return fmt.Errorf("record close event: %w", err)
 	}
 
 	name := m.current.Name

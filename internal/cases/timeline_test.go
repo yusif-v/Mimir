@@ -73,3 +73,20 @@ func TestLoadTimelineMissingFileIsEmpty(t *testing.T) {
 		t.Fatalf("timeline = %d, want 0", got)
 	}
 }
+
+func TestAddNoteAppendsTimelineEvent(t *testing.T) {
+	c := newTempCase(t)
+	if err := c.AddNote("found a thing", "analyst"); err != nil {
+		t.Fatalf("AddNote: %v", err)
+	}
+	if len(c.Notes) != 1 {
+		t.Fatalf("Notes = %d, want 1", len(c.Notes))
+	}
+	tl := c.Timeline()
+	if len(tl) != 1 || tl[0].Type != "note" {
+		t.Fatalf("timeline = %+v, want one note event", tl)
+	}
+	if tl[0].Payload["content"] != "found a thing" {
+		t.Fatalf("note content = %v", tl[0].Payload["content"])
+	}
+}

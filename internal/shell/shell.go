@@ -360,7 +360,9 @@ func (a *App) cmdNote(args []string) error {
 		return fmt.Errorf("no case is open")
 	}
 	content := strings.Join(args, " ")
-	c.AddNote(content, "analyst")
+	if err := c.AddNote(content, "analyst"); err != nil {
+		return err
+	}
 	return c.Save()
 }
 
