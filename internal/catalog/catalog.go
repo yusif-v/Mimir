@@ -36,7 +36,7 @@ func List() ([]Entry, error) {
 		tomlPath := "templates/" + d.Name() + "/mimir.toml"
 		data, err := templatesFS.ReadFile(tomlPath)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read catalog %q: %w", d.Name(), err)
 		}
 		def, err := tools.ParseTemplate(data, tomlPath)
 		if err != nil {
@@ -70,7 +70,7 @@ func Get(name string) (Entry, bool) {
 func Install(name, destDir string) error {
 	srcDir := "templates/" + name
 	if _, err := fs.Stat(templatesFS, srcDir); err != nil {
-		return fmt.Errorf("unknown tool: %s", name)
+		return fmt.Errorf("unknown tool %q: %w", name, err)
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create dest dir: %w", err)
