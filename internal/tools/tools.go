@@ -220,7 +220,7 @@ func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 	}
 
 	if tool.RunsInDocker() {
-		if !r.dockerAvail {
+		if !r.DockerReachable() {
 			result.Error = fmt.Errorf("docker is not available — is Docker running?")
 			result.FinishedAt = time.Now()
 			r.events.Emit(events.ToolError, map[string]any{
