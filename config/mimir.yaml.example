@@ -1,0 +1,6 @@
+# Mimir Configuration
+cases_path: ~/Mimir/Investigations
+tools_path: ~/Mimir/tools
+log_path: ~/Mimir/logs
+history_path: ~/.mimir_history
+log_level: INFO
