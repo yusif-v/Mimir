@@ -355,7 +355,7 @@ func (a *App) cmdInstall(args []string) error {
 	}
 
 	if err := catalog.Install(name, destDir); err != nil {
-		return err
+		return fmt.Errorf("install %s: %w", name, err)
 	}
 	fmt.Printf("Template installed: %s\n", destDir)
 
