@@ -1,0 +1,19 @@
+[tool]
+name = "volatility"
+description = "Memory forensics with Volatility 3"
+category = "forensics"
+tags = ["memory", "windows", "linux"]
+
+[docker]
+image = "dfir-volatility:latest"
+workdir = "/output"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/output"
+mode = "rw"
