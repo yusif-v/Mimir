@@ -1,0 +1,25 @@
+# Binaries
+mimir
+*.exe
+
+# Go
+vendor/
+go.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+*.test
+*.out
+
+# Mimir runtime
+Investigations/
+.mhistory

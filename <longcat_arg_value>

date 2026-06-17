@@ -1,0 +1,6 @@
+package tools
+
+// RunsInDocker returns true if this tool uses a Docker image.
+func (d *Definition) RunsInDocker() bool {
+	return d.DockerImage != ""
+}
