@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/events"
 )
 
@@ -395,6 +396,26 @@ func (r *Runner) runLocal(cmd string, args []string, result *Result) *Result {
 			"tool":  result.Tool,
 			"error": result.Error,
 		})
+	}
+	return result
+}
+
+// RunBuiltin executes a native-Go built-in tool, producing the same Result
+// shape as Docker/local runs so capture and timeline recording are uniform.
+func (r *Runner) RunBuiltin(name string, args []string) *Result {
+	r.events.Emit(events.ToolStarted, map[string]any{"tool": name, "args": args})
+
+	result := &Result{Tool: name, Args: args, StartedAt: time.Now()}
+	out, err := builtins.Run(name, args)
+	result.Stdout = out
+	result.FinishedAt = time.Now()
+
+	if err != nil {
+		result.Error = err
+		result.ReturnCode = 1
+		r.events.Emit(events.ToolError, map[string]any{"tool": name, "error": err})
+	} else {
+		r.events.Emit(events.ToolFinished, map[string]any{"tool": name, "output": out})
 	}
 	return result
 }

@@ -168,3 +168,37 @@ func TestOutputCaptureRecord(t *testing.T) {
 		t.Errorf("expected 1 output file, got %d", len(entries))
 	}
 }
+
+func TestRunBuiltin(t *testing.T) {
+	bus := events.NewBus()
+	r := tools.NewRunner(bus)
+
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(fp, []byte("abc"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	res := r.RunBuiltin("hash", []string{fp})
+	if !res.Success() {
+		t.Fatalf("expected success, err=%v code=%d", res.Error, res.ReturnCode)
+	}
+	if res.Tool != "hash" {
+		t.Errorf("Tool = %q, want hash", res.Tool)
+	}
+	if res.Stdout == "" {
+		t.Error("expected hash output")
+	}
+}
+
+func TestRunBuiltinFailure(t *testing.T) {
+	bus := events.NewBus()
+	r := tools.NewRunner(bus)
+	res := r.RunBuiltin("hash", []string{"/no/such/file"})
+	if res.Success() {
+		t.Fatal("expected failure for missing file")
+	}
+	if res.ReturnCode == 0 {
+		t.Error("expected non-zero return code")
+	}
+}
