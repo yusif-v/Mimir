@@ -126,3 +126,15 @@ func TestDecodeAutoHex(t *testing.T) {
 		t.Fatalf("want 'hello' from auto hex, got %q", out)
 	}
 }
+
+func TestDecodeAutoPrefersHex(t *testing.T) {
+	// "68656c6c6f6f" is valid hex ("helloo") AND a valid base64 length (12).
+	// Auto-detect must pick hex first.
+	out, err := Run("decode", []string{"68656c6c6f6f"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "(hex)") || !strings.Contains(out, "helloo") {
+		t.Fatalf("want hex-decoded 'helloo', got %q", out)
+	}
+}

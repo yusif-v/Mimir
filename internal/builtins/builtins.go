@@ -318,7 +318,7 @@ func decodeTool(args []string) (string, error) {
 		}
 		return string(b) + "\n", nil
 	}
-	for _, m := range []string{"base64", "hex", "url"} {
+	for _, m := range []string{"hex", "base64", "url"} {
 		if b, ok := try(m); ok {
 			return fmt.Sprintf("(%s) %s\n", m, string(b)), nil
 		}
