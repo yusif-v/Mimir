@@ -108,6 +108,13 @@ func (m *Manager) List() ([]*Case, error) {
 	return m.storage.List()
 }
 
+// Names returns case names without loading each case's metadata or timeline.
+// A case's directory name is its name, so this is a cheap directory listing —
+// suitable for hot paths like completion that only need names.
+func (m *Manager) Names() ([]string, error) {
+	return m.storage.Names()
+}
+
 // Storage provides filesystem-based case persistence.
 type Storage struct {
 	basePath string
@@ -144,4 +151,24 @@ func (s *Storage) List() ([]*Case, error) {
 		return cases[i].CreatedAt < cases[j].CreatedAt
 	})
 	return cases, nil
+}
+
+// Names lists case directory names without reading case files. Sorted
+// alphabetically for stable completion ordering.
+func (s *Storage) Names() ([]string, error) {
+	entries, err := os.ReadDir(s.basePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }

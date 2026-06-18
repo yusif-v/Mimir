@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/yusif-v/mimir/internal/builtins"
-	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/tools"
 )
@@ -21,14 +20,14 @@ func (c *Completer) Do(line []rune, pos int) ([][]rune, int) {
 	cwd, _ := os.Getwd()
 	installed := c.app.Tools.List("")
 	catEntries, _ := catalog.List()
-	caseList, _ := c.app.Cases.List()
+	names, _ := c.app.Cases.Names()
 
 	s := sources{
 		commands:     commandNames,
 		toolNames:    toolNames(installed, builtins.List()),
 		installNames: installNames(installed, catEntries),
 		buildNames:   buildNames(installed),
-		caseNames:    caseNames(caseList),
+		caseNames:    names,
 		filePath: func(word string) ([][]rune, int) {
 			return filePathComplete(cwd, word, os.ReadDir)
 		},
@@ -132,14 +131,6 @@ func buildNames(installed []*tools.Definition) []string {
 		}
 	}
 	sort.Strings(out)
-	return out
-}
-
-func caseNames(cs []*cases.Case) []string {
-	out := make([]string, 0, len(cs))
-	for _, c := range cs {
-		out = append(out, c.Name)
-	}
 	return out
 }
 

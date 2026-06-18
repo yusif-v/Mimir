@@ -56,3 +56,23 @@ func TestInstallUnknownErrors(t *testing.T) {
 		t.Error("expected error installing unknown tool")
 	}
 }
+
+func TestListReturnsIndependentCopy(t *testing.T) {
+	a, err := catalog.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(a) == 0 {
+		t.Fatal("expected catalog entries")
+	}
+	// The catalog is memoized; mutating a returned slice must not leak into
+	// the cached copy seen by the next caller.
+	a[0].Name = "MUTATED"
+	b, err := catalog.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if b[0].Name == "MUTATED" {
+		t.Error("List() returned a shared slice; mutation leaked across calls")
+	}
+}

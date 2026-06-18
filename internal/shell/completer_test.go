@@ -119,14 +119,6 @@ func TestBuildNamesOnlyDocker(t *testing.T) {
 	}
 }
 
-func TestCaseNames(t *testing.T) {
-	cs := []*cases.Case{{Name: "alpha"}, {Name: "beta"}}
-	got := caseNames(cs)
-	if len(got) != 2 || got[0] != "alpha" || got[1] != "beta" {
-		t.Fatalf("got %v, want [alpha beta]", got)
-	}
-}
-
 func newTestSources() sources {
 	return sources{
 		commands:     commandNames,
