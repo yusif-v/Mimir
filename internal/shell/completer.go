@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/yusif-v/mimir/internal/builtins"
-	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/cases"
+	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
