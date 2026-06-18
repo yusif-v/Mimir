@@ -9,7 +9,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
@@ -314,29 +316,75 @@ func (a *App) cmdRun(args []string) error {
 	toolName := args[0]
 	toolArgs := args[1:]
 
-	tool, ok := a.Tools.Get(toolName)
-	if !ok {
-		return fmt.Errorf("tool not found: %s", toolName)
-	}
-
 	casePath := ""
 	if c := a.Cases.Current(); c != nil {
 		casePath = c.Path
 	}
 
-	result := a.Runner.Run(tool, toolArgs, casePath)
-	if result.Success() {
-		if result.Stdout != "" {
-			fmt.Print(result.Stdout)
+	var result *tools.Result
+	if builtins.Has(toolName) {
+		result = a.Runner.RunBuiltin(toolName, toolArgs)
+	} else {
+		tool, ok := a.Tools.Get(toolName)
+		if !ok {
+			return fmt.Errorf("tool not found: %s", toolName)
 		}
-		if c := a.Cases.Current(); c != nil {
-			c.AddToolUsage(toolName)
-			c.Save()
+		result = a.Runner.Run(tool, toolArgs, casePath)
+	}
+
+	if result.Stdout != "" {
+		fmt.Print(result.Stdout)
+	}
+	if result.Stderr != "" {
+		fmt.Fprint(os.Stderr, result.Stderr)
+	}
+
+	// Record into the open case (output file + timeline event), even on failure.
+	if c := a.Cases.Current(); c != nil {
+		a.recordRun(c, result)
+		c.AddToolUsage(toolName)
+		if err := c.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s save case: %v\n", colorYellow, colorReset, err)
 		}
-	} else if result.Error != nil {
+	}
+
+	if !result.Success() && result.Error != nil {
 		return result.Error
 	}
 	return nil
+}
+
+// recordRun saves output to the case and appends a tool_run timeline event.
+// Failures are surfaced as warnings — never silently swallowed — but do not
+// abort the run result already shown to the analyst.
+func (a *App) recordRun(c *cases.Case, result *tools.Result) {
+	outputRel := ""
+	if outputPath, err := a.Output.Record(result.Tool, result.Stdout, c.Path); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s capture output: %v\n", colorYellow, colorReset, err)
+	} else if rel, err := filepath.Rel(c.Path, outputPath); err == nil {
+		outputRel = rel
+	} else {
+		outputRel = outputPath
+	}
+
+	payload := map[string]any{
+		"tool":        result.Tool,
+		"args":        result.Args,
+		"return_code": result.ReturnCode,
+		"duration_ms": result.Duration().Milliseconds(),
+		"output_file": outputRel,
+		"success":     result.Success(),
+	}
+	if !result.Success() && result.Stderr != "" {
+		payload["stderr"] = result.Stderr
+	}
+	if err := c.AppendEvent(cases.TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Payload:   payload,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+	}
 }
 
 func (a *App) cmdUse(args []string) error {
