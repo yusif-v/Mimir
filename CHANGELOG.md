@@ -8,12 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Readline-based REPL: arrow-key line editing, persistent command history (`~/.mimir/.history`), Ctrl+R reverse search
+- Context-aware Tab completion (commands, tools + built-ins, installable catalog, case names, file paths)
 - Append-only per-case timeline (`timeline.jsonl`) with in-memory cache
 - Tool runs recorded to case output + timeline (success and failure)
 - Notes and case open/close recorded on the timeline
 - Native-Go built-in tools: `hash`, `strings`, `file` (no Docker required)
 - `timeline` command (chronological view, `-n` tail)
 - `OutputCapture.Record` now returns the written output path
+
+### Fixed
+- Arrow keys no longer inject escape codes / corrupt the prompt (replaced `bufio.Scanner` input)
+- Ctrl+C cancels the current line instead of killing Mimir; Ctrl+D exits cleanly
+- Unknown commands passed to the shell no longer rewrap the exit code as `error: exit status N`
+- Startup banner shows the correct version
 
 ### Planned
 - Export case to JSON archive
