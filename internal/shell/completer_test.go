@@ -182,3 +182,39 @@ func TestCompleteUnknownCommandIsFilePath(t *testing.T) {
 		t.Fatalf("got %v, want [FILE] for passthrough arg", gs)
 	}
 }
+
+func TestCompleteEmptyLineReturnsCommands(t *testing.T) {
+	got, length := complete("", newTestSources())
+	if length != 0 {
+		t.Fatalf("length = %d, want 0", length)
+	}
+	if len(got) != len(commandNames) {
+		t.Fatalf("got %d candidates, want %d (all commands)", len(got), len(commandNames))
+	}
+}
+
+func TestCompleteWhitespaceLineNoPanic(t *testing.T) {
+	for _, line := range []string{"\t", "   "} {
+		got, _ := complete(line, newTestSources())
+		if len(got) == 0 {
+			t.Errorf("complete(%q): expected command candidates, got none", line)
+		}
+	}
+}
+
+func TestMatchSuffixesMultibyte(t *testing.T) {
+	got, length := matchSuffixes("日", []string{"日本語", "日記", "x"})
+	if length != 1 {
+		t.Fatalf("length = %d, want 1 (one rune)", length)
+	}
+	gs := runesToStrings(got)
+	want := []string{"本語", "記"}
+	if len(gs) != len(want) {
+		t.Fatalf("got %v, want %v", gs, want)
+	}
+	for i := range want {
+		if gs[i] != want[i] {
+			t.Errorf("suffix[%d] = %q, want %q", i, gs[i], want[i])
+		}
+	}
+}

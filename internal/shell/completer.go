@@ -135,6 +135,10 @@ func complete(line string, s sources) ([][]rune, int) {
 	fields := strings.Fields(line)
 	trailing := line == "" || strings.HasSuffix(line, " ")
 
+	if len(fields) == 0 {
+		return matchSuffixes("", s.commands)
+	}
+
 	var completed []string
 	var word string
 	if trailing {
