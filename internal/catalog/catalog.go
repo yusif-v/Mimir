@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/yusif-v/mimir/internal/tools"
 )
@@ -22,8 +23,28 @@ type Entry struct {
 	Tags        []string
 }
 
+var (
+	listOnce     sync.Once
+	listCached   []Entry
+	listCacheErr error
+)
+
 // List returns all catalog entries, parsed from each templates/<name>/mimir.toml.
+// The embedded catalog is immutable at runtime, so the parse happens once and
+// the result is cached; callers (e.g. the REPL completer on every keystroke)
+// get a fresh copy without re-reading or re-parsing the TOML.
 func List() ([]Entry, error) {
+	listOnce.Do(func() {
+		listCached, listCacheErr = parseEntries()
+	})
+	if listCacheErr != nil {
+		return nil, listCacheErr
+	}
+	return append([]Entry(nil), listCached...), nil
+}
+
+// parseEntries reads and parses every templates/<name>/mimir.toml once.
+func parseEntries() ([]Entry, error) {
 	dirs, err := fs.ReadDir(templatesFS, "templates")
 	if err != nil {
 		return nil, fmt.Errorf("read catalog: %w", err)

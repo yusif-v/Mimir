@@ -143,3 +143,31 @@ func TestScaffold(t *testing.T) {
 		}
 	}
 }
+
+func TestManagerNamesListsDirsWithoutLoading(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	if _, err := mgr.Create("alpha"); err != nil {
+		t.Fatalf("create alpha: %v", err)
+	}
+	if _, err := mgr.Create("beta"); err != nil {
+		t.Fatalf("create beta: %v", err)
+	}
+	names, err := mgr.Names()
+	if err != nil {
+		t.Fatalf("Names: %v", err)
+	}
+	if len(names) != 2 || names[0] != "alpha" || names[1] != "beta" {
+		t.Fatalf("got %v, want [alpha beta]", names)
+	}
+}
+
+func TestManagerNamesEmpty(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	names, err := mgr.Names()
+	if err != nil {
+		t.Fatalf("Names: %v", err)
+	}
+	if len(names) != 0 {
+		t.Fatalf("got %v, want empty", names)
+	}
+}
