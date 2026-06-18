@@ -13,6 +13,16 @@ import (
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
+func TestBannerUsesCurrentVersion(t *testing.T) {
+	b := banner()
+	if !strings.Contains(b, Version) {
+		t.Errorf("banner missing version %q: %s", Version, b)
+	}
+	if strings.Contains(b, "0.1.0") {
+		t.Errorf("banner still shows stale version: %s", b)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()
@@ -181,5 +191,24 @@ func TestCmdBuildDockerDown(t *testing.T) {
 	err := app.cmdBuild([]string{"volatility"})
 	if err == nil || !strings.Contains(err.Error(), "docker is not available") {
 		t.Fatalf("expected docker-not-available error, got %v", err)
+	}
+}
+
+func TestCmdShellQuietsExitError(t *testing.T) {
+	app := &App{}
+	// `false` exits 1; its nonzero exit must NOT surface as a Mimir error.
+	if err := app.cmdShell("false"); err != nil {
+		t.Errorf("expected nil for nonzero subprocess exit, got %v", err)
+	}
+	// A command-not-found inside sh exits 127; sh prints its own message.
+	if err := app.cmdShell("this_command_definitely_does_not_exist_xyz"); err != nil {
+		t.Errorf("expected nil for in-shell command-not-found, got %v", err)
+	}
+}
+
+func TestCmdShellSucceeds(t *testing.T) {
+	app := &App{}
+	if err := app.cmdShell("true"); err != nil {
+		t.Errorf("expected nil for successful command, got %v", err)
 	}
 }

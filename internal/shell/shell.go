@@ -2,8 +2,9 @@
 package shell
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chzyer/readline"
 	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
@@ -29,6 +31,14 @@ const (
 	colorDim    = "\033[2m"
 )
 
+// Version is the Mimir release version, shown in the startup banner.
+const Version = "0.3.0"
+
+func banner() string {
+	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
+		colorCyan, Version, colorReset, colorGreen, colorReset, colorGreen, colorReset)
+}
+
 // App ties together all subsystems.
 type App struct {
 	Config *config.Config
@@ -37,6 +47,7 @@ type App struct {
 	Tools  *tools.Registry
 	Runner *tools.Runner
 	Output *tools.OutputCapture
+	rl     *readline.Instance
 }
 
 // NewApp creates a new shell app with all subsystems wired.
@@ -64,33 +75,51 @@ func NewApp(cfg *config.Config) *App {
 
 // Run starts the interactive REPL.
 func (a *App) Run() error {
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("%sMimir v0.1.0%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.\n",
-		colorCyan, colorReset, colorGreen, colorReset, colorGreen, colorReset)
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:            a.buildPrompt(),
+		HistoryFile:       a.Config.HistoryPath,
+		HistoryLimit:      1000,
+		HistorySearchFold: true,
+		AutoComplete:      &Completer{app: a},
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "exit",
+	})
+	if err != nil {
+		return fmt.Errorf("init readline: %w", err)
+	}
+	a.rl = rl
+	defer a.rl.Close()
+
+	fmt.Println(banner())
 
 	for {
-		prompt := a.buildPrompt()
-		fmt.Print(prompt)
+		a.rl.SetPrompt(a.buildPrompt())
 
-		if !scanner.Scan() {
-			break
+		line, err := a.rl.Readline()
+		if errors.Is(err, readline.ErrInterrupt) {
+			continue // Ctrl+C cancels the current line; never exits
+		}
+		if errors.Is(err, io.EOF) {
+			fmt.Println("Exiting Mimir...")
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("readline: %w", err)
 		}
 
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
 
-		if err := a.dispatch(line); err != nil {
-			if err.Error() == "exit" {
+		if derr := a.dispatch(line); derr != nil {
+			if derr.Error() == "exit" {
 				fmt.Println("Exiting Mimir...")
 				return nil
 			}
-			fmt.Fprintf(os.Stderr, "%serror:%s %v\n", colorRed, colorReset, err)
+			fmt.Fprintf(os.Stderr, "%serror:%s %v\n", colorRed, colorReset, derr)
 		}
 	}
-
-	return scanner.Err()
 }
 
 func (a *App) buildPrompt() string {
@@ -492,12 +521,22 @@ func (a *App) cmdClear(args []string) error {
 }
 
 func (a *App) cmdShell(line string) error {
-	// Shell passthrough
+	// Shell passthrough. The operator runs arbitrary shell commands by design,
+	// so `sh -c` is intentional (pipes/globs/redirects). We only refine error
+	// reporting: a subprocess that exits non-zero already printed its own
+	// message to stderr, so we don't rewrap that as a Mimir `error:`.
 	cmd := exec.Command("sh", "-c", line)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil // subprocess self-reported on stderr
+		}
+		return err // failed to launch sh, etc.
+	}
+	return nil
 }
 
 // buildImage builds a Docker image from a template directory by shelling out
