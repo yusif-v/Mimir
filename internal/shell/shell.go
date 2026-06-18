@@ -375,8 +375,14 @@ func (a *App) recordRun(c *cases.Case, result *tools.Result) {
 		"output_file": outputRel,
 		"success":     result.Success(),
 	}
-	if !result.Success() && result.Stderr != "" {
-		payload["stderr"] = result.Stderr
+	if !result.Success() {
+		stderrMsg := result.Stderr
+		if stderrMsg == "" && result.Error != nil {
+			stderrMsg = result.Error.Error()
+		}
+		if stderrMsg != "" {
+			payload["stderr"] = stderrMsg
+		}
 	}
 	if err := c.AppendEvent(cases.TimelineEvent{
 		Type:      "tool_run",

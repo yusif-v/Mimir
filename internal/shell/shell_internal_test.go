@@ -90,10 +90,68 @@ func TestCmdRunRecordsTimeline(t *testing.T) {
 			if e.Payload["success"] != true {
 				t.Errorf("expected success=true, got %v", e.Payload["success"])
 			}
+			if _, ok := e.Payload["return_code"]; !ok {
+				t.Errorf("expected return_code in payload")
+			}
+			if _, ok := e.Payload["duration_ms"]; !ok {
+				t.Errorf("expected duration_ms in payload")
+			}
+			if _, ok := e.Payload["output_file"]; !ok {
+				t.Errorf("expected output_file in payload")
+			}
+			if _, ok := e.Payload["args"]; !ok {
+				t.Errorf("expected args in payload")
+			}
 		}
 	}
 	if !found {
 		t.Fatalf("no tool_run event found; timeline=%+v", c.Timeline())
+	}
+}
+
+func TestCmdRunRecordsFailedRun(t *testing.T) {
+	base := t.TempDir()
+	bus := events.NewBus()
+	app := &App{
+		Config: &config.Config{CasesPath: base},
+		Events: bus,
+		Cases:  cases.NewManager(base, bus),
+		Tools:  tools.NewRegistry(bus),
+		Runner: tools.NewRunner(bus),
+		Output: tools.NewOutputCapture(bus),
+	}
+
+	if _, err := app.Cases.Create("c2"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := app.Cases.Open("c2"); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// Run hash on a path that does not exist — builtin will fail with a non-nil Error.
+	err := app.cmdRun([]string{"hash", "/no/such/file/xyz"})
+	if err == nil {
+		t.Fatal("expected cmdRun to return a non-nil error for failed run")
+	}
+
+	c := app.Cases.Current()
+	var found bool
+	for _, e := range c.Timeline() {
+		if e.Type == "tool_run" && e.Payload["tool"] == "hash" {
+			found = true
+			if e.Payload["success"] != false {
+				t.Errorf("expected success=false, got %v", e.Payload["success"])
+			}
+			stderr, ok := e.Payload["stderr"]
+			if !ok {
+				t.Errorf("expected stderr key in failed tool_run payload; payload=%+v", e.Payload)
+			} else if s, _ := stderr.(string); s == "" {
+				t.Errorf("expected non-empty stderr in payload")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no tool_run event found for failed run; timeline=%+v", c.Timeline())
 	}
 }
 
