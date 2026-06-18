@@ -13,6 +13,16 @@ import (
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
+func TestBannerUsesCurrentVersion(t *testing.T) {
+	b := banner()
+	if !strings.Contains(b, Version) {
+		t.Errorf("banner missing version %q: %s", Version, b)
+	}
+	if strings.Contains(b, "0.1.0") {
+		t.Errorf("banner still shows stale version: %s", b)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	dir := t.TempDir()

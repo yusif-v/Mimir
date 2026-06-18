@@ -11,6 +11,31 @@ import (
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
+// Completer is the readline AutoCompleter; it assembles live candidate sources
+// from the App on each pass and delegates to the pure complete().
+type Completer struct {
+	app *App
+}
+
+func (c *Completer) Do(line []rune, pos int) ([][]rune, int) {
+	cwd, _ := os.Getwd()
+	installed := c.app.Tools.List("")
+	catEntries, _ := catalog.List()
+	caseList, _ := c.app.Cases.List()
+
+	s := sources{
+		commands:     commandNames,
+		toolNames:    toolNames(installed, builtins.List()),
+		installNames: installNames(installed, catEntries),
+		buildNames:   buildNames(installed),
+		caseNames:    caseNames(caseList),
+		filePath: func(word string) ([][]rune, int) {
+			return filePathComplete(cwd, word, os.ReadDir)
+		},
+	}
+	return complete(string(line[:pos]), s)
+}
+
 // commandNames are the REPL's built-in command verbs, completed at word 0.
 var commandNames = []string{
 	"help", "exit", "quit", "status", "case", "cases", "tools",

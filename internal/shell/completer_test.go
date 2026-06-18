@@ -8,6 +8,7 @@ import (
 	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/cases"
+	"github.com/yusif-v/mimir/internal/events"
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
@@ -199,6 +200,33 @@ func TestCompleteWhitespaceLineNoPanic(t *testing.T) {
 		if len(got) == 0 {
 			t.Errorf("complete(%q): expected command candidates, got none", line)
 		}
+	}
+}
+
+func TestCompleterDoCompletesCommand(t *testing.T) {
+	bus := events.NewBus()
+	app := &App{
+		Tools: tools.NewRegistry(bus),
+		Cases: cases.NewManager(t.TempDir(), bus),
+	}
+	c := &Completer{app: app}
+	got, length := c.Do([]rune("ti"), 2)
+	gs := runesToStrings(got)
+	if length != 2 || len(gs) != 1 || gs[0] != "meline" { // "ti" + "meline"
+		t.Fatalf("got %v len %d, want [meline] len 2", gs, length)
+	}
+}
+
+func TestCompleterDoCompletesRegisteredTool(t *testing.T) {
+	bus := events.NewBus()
+	reg := tools.NewRegistry(bus)
+	reg.Register(&tools.Definition{Name: "volatility", DockerImage: "img"})
+	app := &App{Tools: reg, Cases: cases.NewManager(t.TempDir(), bus)}
+	c := &Completer{app: app}
+	got, _ := c.Do([]rune("run vol"), 7)
+	gs := runesToStrings(got)
+	if len(gs) != 1 || gs[0] != "atility" {
+		t.Fatalf("got %v, want [atility]", gs)
 	}
 }
 
