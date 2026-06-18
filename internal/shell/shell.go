@@ -2,6 +2,8 @@
 package shell
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +21,7 @@ import (
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
 	"github.com/yusif-v/mimir/internal/tools"
+	"github.com/yusif-v/mimir/internal/ui"
 )
 
 // ANSI color codes
@@ -218,6 +221,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdUse(args)
 	case "note":
 		return a.cmdNote(args)
+	case "evidence", "ev":
+		return a.cmdEvidence(args)
 	case "timeline":
 		return a.cmdTimeline(args)
 	case "clear":
@@ -239,6 +244,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
+	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify\n", colorGreen, colorReset)
 	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	return nil
@@ -712,6 +718,178 @@ func (a *App) cmdBuild(args []string) error {
 	}
 	fmt.Printf("%s%s rebuilt.%s\n", colorGreen, name, colorReset)
 	return nil
+}
+
+func (a *App) cmdEvidence(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	if len(args) == 0 {
+		return a.evidenceList(c)
+	}
+	switch args[0] {
+	case "add":
+		return a.evidenceAdd(c, args[1:])
+	case "tag":
+		return a.evidenceTag(c, args[1:])
+	case "verify":
+		return a.evidenceVerify(c, args[1:])
+	default:
+		return fmt.Errorf("usage: evidence [add <path> [--tag a,b] | tag <name> <tag>... | verify [name]]")
+	}
+}
+
+func (a *App) evidenceAdd(c *cases.Case, args []string) error {
+	var src string
+	var tags []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--tag" && i+1 < len(args) {
+			tags = strings.Split(args[i+1], ",")
+			i++
+			continue
+		}
+		src = args[i]
+	}
+	if src == "" {
+		return fmt.Errorf("usage: evidence add <path> [--tag a,b]")
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", src, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	name := filepath.Base(src)
+	dest := filepath.Join(c.Path, "evidence", name)
+	srcAbs, _ := filepath.Abs(src)
+	destAbs, _ := filepath.Abs(dest)
+	if srcAbs != destAbs { // external → copy in
+		if existing, err := os.Stat(dest); err == nil && existing.Mode().IsRegular() {
+			if h1, _ := hashFile(src); func() string { h2, _ := hashFile(dest); return h2 }() != h1 {
+				return fmt.Errorf("evidence %q already exists with a different hash — refusing to overwrite", name)
+			}
+		}
+		if err := copyFile(src, dest); err != nil {
+			return fmt.Errorf("copy evidence: %w", err)
+		}
+	}
+	sum, err := hashFile(dest)
+	if err != nil {
+		return fmt.Errorf("hash evidence: %w", err)
+	}
+	now := time.Now().Format(time.RFC3339)
+	if err := c.AppendEvidence(cases.EvidenceRecord{
+		Op: "add", Name: name, SHA256: sum, Size: info.Size(), Source: src, Tags: tags, Time: now,
+	}); err != nil {
+		return err
+	}
+	_ = c.AppendEvent(cases.TimelineEvent{
+		Type: "evidence_added", Timestamp: now,
+		Payload: map[string]any{"name": name, "sha256": sum, "tags": tags},
+	})
+	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, sum[:12])
+	return nil
+}
+
+func (a *App) evidenceTag(c *cases.Case, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: evidence tag <name> <tag>...")
+	}
+	name, tags := args[0], args[1:]
+	now := time.Now().Format(time.RFC3339)
+	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "tag", Name: name, Tags: tags, Time: now}); err != nil {
+		return err
+	}
+	_ = c.AppendEvent(cases.TimelineEvent{
+		Type: "evidence_tagged", Timestamp: now,
+		Payload: map[string]any{"name": name, "tags": tags},
+	})
+	fmt.Printf("tagged %s: %s\n", name, strings.Join(tags, ", "))
+	return nil
+}
+
+func (a *App) evidenceVerify(c *cases.Case, args []string) error {
+	want := ""
+	if len(args) > 0 {
+		want = args[0]
+	}
+	ok := true
+	for _, e := range c.Evidence() {
+		if want != "" && e.Name != want {
+			continue
+		}
+		path := filepath.Join(c.Path, "evidence", e.Name)
+		sum, err := hashFile(path)
+		if err != nil {
+			fmt.Printf("%s%-20s MISSING%s\n", colorRed, e.Name, colorReset)
+			ok = false
+			continue
+		}
+		if sum != e.SHA256 {
+			fmt.Printf("%s%-20s MISMATCH%s\n", colorRed, e.Name, colorReset)
+			ok = false
+		} else {
+			fmt.Printf("%s%-20s ok%s\n", colorGreen, e.Name, colorReset)
+		}
+	}
+	if !ok {
+		return fmt.Errorf("evidence verification found problems")
+	}
+	return nil
+}
+
+func (a *App) evidenceList(c *cases.Case) error {
+	ev := c.Evidence()
+	if len(ev) == 0 {
+		fmt.Println("No evidence tracked. Add with: evidence add <path>")
+		return nil
+	}
+	tbl := ui.Table{
+		Headers: []string{"NAME", "SHA256", "SIZE", "TAGS"},
+		Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignRight, ui.AlignLeft},
+	}
+	for _, e := range ev {
+		short := e.SHA256
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		tbl.Rows = append(tbl.Rows, []string{e.Name, short, fmt.Sprintf("%d", e.Size), strings.Join(e.Tags, ",")})
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	return nil
+}
+
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // splitArgs splits a command line string into arguments, respecting quotes.

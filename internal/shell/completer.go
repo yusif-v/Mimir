@@ -38,7 +38,7 @@ func (c *Completer) Do(line []rune, pos int) ([][]rune, int) {
 // commandNames are the REPL's built-in command verbs, completed at word 0.
 var commandNames = []string{
 	"help", "exit", "quit", "status", "case", "cases", "tools",
-	"run", "install", "build", "use", "note", "clear", "timeline",
+	"run", "install", "build", "use", "note", "evidence", "ev", "clear", "timeline",
 }
 
 // matchSuffixes implements the readline AutoCompleter.Do contract: for each

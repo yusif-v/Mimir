@@ -249,6 +249,58 @@ func TestBuildPromptMarker(t *testing.T) {
 	}
 }
 
+func TestCmdEvidenceAddAndList(t *testing.T) {
+	base := t.TempDir()
+	bus := events.NewBus()
+	app := &App{
+		Config: &config.Config{CasesPath: base},
+		Events: bus,
+		Cases:  cases.NewManager(base, bus),
+	}
+	if _, err := app.Cases.Create("c1"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := app.Cases.Open("c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// External source file
+	src := filepath.Join(base, "ext.bin")
+	if err := os.WriteFile(src, []byte("abc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.cmdEvidence([]string{"add", src, "--tag", "malware"}); err != nil {
+		t.Fatalf("evidence add: %v", err)
+	}
+	// File copied into evidence/
+	if _, err := os.Stat(filepath.Join(c.Path, "evidence", "ext.bin")); err != nil {
+		t.Fatalf("evidence file not copied: %v", err)
+	}
+	ev := c.Evidence()
+	if len(ev) != 1 || ev[0].SHA256 == "" || !contains(ev[0].Tags, "malware") {
+		t.Fatalf("evidence record wrong: %+v", ev)
+	}
+	// Timeline event recorded
+	found := false
+	for _, e := range c.Timeline() {
+		if e.Type == "evidence_added" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no evidence_added timeline event")
+	}
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFilterTimeline(t *testing.T) {
 	evs := []cases.TimelineEvent{
 		{Type: "tool_run", Payload: map[string]any{"tool": "hash"}},
