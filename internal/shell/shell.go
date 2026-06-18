@@ -508,6 +508,40 @@ func (a *App) cmdNote(args []string) error {
 	return c.Save()
 }
 
+// filterTimeline keeps events matching all supplied filters. types is a set of
+// event-type names (empty = any); grep is a case-insensitive substring matched
+// against the event type and its payload values (empty = any).
+func filterTimeline(evs []cases.TimelineEvent, types []string, grep string) []cases.TimelineEvent {
+	typeSet := map[string]bool{}
+	for _, t := range types {
+		typeSet[t] = true
+	}
+	grep = strings.ToLower(grep)
+	var out []cases.TimelineEvent
+	for _, ev := range evs {
+		if len(typeSet) > 0 && !typeSet[ev.Type] {
+			continue
+		}
+		if grep != "" && !eventMatches(ev, grep) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+func eventMatches(ev cases.TimelineEvent, lowerSub string) bool {
+	if strings.Contains(strings.ToLower(ev.Type), lowerSub) {
+		return true
+	}
+	for _, v := range ev.Payload {
+		if strings.Contains(strings.ToLower(fmt.Sprint(v)), lowerSub) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) cmdTimeline(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
@@ -515,12 +549,33 @@ func (a *App) cmdTimeline(args []string) error {
 	}
 
 	evs := c.Timeline()
-	// Optional: timeline -n N tails the last N events.
-	if len(args) == 2 && args[0] == "-n" {
-		n := 0
-		if _, err := fmt.Sscanf(args[1], "%d", &n); err == nil && n > 0 && n < len(evs) {
-			evs = evs[len(evs)-n:]
+
+	var types []string
+	grep := ""
+	tail := 0
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--type":
+			if i+1 < len(args) {
+				types = strings.Split(args[i+1], ",")
+				i++
+			}
+		case "--grep":
+			if i+1 < len(args) {
+				grep = args[i+1]
+				i++
+			}
+		case "-n":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &tail)
+				i++
+			}
 		}
+	}
+
+	evs = filterTimeline(evs, types, grep)
+	if tail > 0 && tail < len(evs) {
+		evs = evs[len(evs)-tail:]
 	}
 
 	if len(evs) == 0 {

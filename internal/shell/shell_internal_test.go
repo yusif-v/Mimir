@@ -248,3 +248,25 @@ func TestBuildPromptMarker(t *testing.T) {
 		t.Fatalf("ASCII marker expected, got %q", got)
 	}
 }
+
+func TestFilterTimeline(t *testing.T) {
+	evs := []cases.TimelineEvent{
+		{Type: "tool_run", Payload: map[string]any{"tool": "hash"}},
+		{Type: "note", Payload: map[string]any{"content": "suspicious binary"}},
+		{Type: "tool_run", Payload: map[string]any{"tool": "strings"}},
+	}
+	// type filter
+	got := filterTimeline(evs, []string{"note"}, "")
+	if len(got) != 1 || got[0].Type != "note" {
+		t.Fatalf("type filter: got %+v", got)
+	}
+	// grep filter
+	got = filterTimeline(evs, nil, "strings")
+	if len(got) != 1 || got[0].Payload["tool"] != "strings" {
+		t.Fatalf("grep filter: got %+v", got)
+	}
+	// no filters → all
+	if len(filterTimeline(evs, nil, "")) != 3 {
+		t.Fatal("no filter should return all")
+	}
+}
