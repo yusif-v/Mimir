@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Export case to JSON archive
+- Evidence management (add, tag, hash workflow)
+
+## [0.3.0] - 2026-06-18
+
 ### Added
 - Readline-based REPL: arrow-key line editing, persistent command history (`~/.mimir/.history`), Ctrl+R reverse search
 - Context-aware Tab completion (commands, tools + built-ins, installable catalog, case names, file paths)
@@ -25,10 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Tab completion no longer does per-keystroke disk work: the embedded tool catalog is parsed once and cached, and case-name completion lists case directories without loading each case's metadata and timeline
-
-### Planned
-- Export case to JSON archive
-- Evidence management (add, tag, hash workflow)
 
 ## [0.1.0] - 2026-06-17
 
@@ -56,4 +58,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - prompt_toolkit dependency (replaced with stdlib bufio.Scanner)
 
 [0.1.0]: https://github.com/yusif-v/Mimir/releases/tag/v0.1.0
-[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.1.0...HEAD
+[0.3.0]: https://github.com/yusif-v/Mimir/compare/v0.1.0...v0.3.0
+[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.3.0...HEAD
