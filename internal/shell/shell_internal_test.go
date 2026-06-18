@@ -403,6 +403,39 @@ func TestCmdEvidenceVerifyMissingName(t *testing.T) {
 	}
 }
 
+func TestCmdIOCExtractAndTrack(t *testing.T) {
+	base := t.TempDir()
+	bus := events.NewBus()
+	app := &App{Config: &config.Config{CasesPath: base}, Events: bus, Cases: cases.NewManager(base, bus)}
+	if _, err := app.Cases.Create("c1"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := app.Cases.Open("c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(c.Path, "evidence", "n.txt")
+	os.MkdirAll(filepath.Dir(f), 0755)
+	os.WriteFile(f, []byte("beacon to 9.9.9.9 and evil.example.com"), 0644)
+
+	if err := app.cmdIOC([]string{f}); err != nil {
+		t.Fatalf("ioc: %v", err)
+	}
+	iocs := c.IOCs()
+	if len(iocs) < 2 {
+		t.Fatalf("want >=2 IOCs tracked, got %d (%+v)", len(iocs), iocs)
+	}
+	found := false
+	for _, e := range c.Timeline() {
+		if e.Type == "ioc_extracted" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no ioc_extracted timeline event")
+	}
+}
+
 func TestFilterTimeline(t *testing.T) {
 	evs := []cases.TimelineEvent{
 		{Type: "tool_run", Payload: map[string]any{"tool": "hash"}},

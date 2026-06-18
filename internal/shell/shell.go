@@ -20,6 +20,7 @@ import (
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
+	"github.com/yusif-v/mimir/internal/ioc"
 	"github.com/yusif-v/mimir/internal/tools"
 	"github.com/yusif-v/mimir/internal/ui"
 )
@@ -225,6 +226,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdEvidence(args)
 	case "timeline":
 		return a.cmdTimeline(args)
+	case "ioc":
+		return a.cmdIOC(args)
 	case "clear":
 		return a.cmdClear(args)
 	default:
@@ -246,6 +249,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
 	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify\n", colorGreen, colorReset)
 	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
+	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	return nil
 }
@@ -615,6 +619,80 @@ func (a *App) cmdTimeline(args []string) error {
 			fmt.Printf("%s  %s\n", ts, ev.Type)
 		}
 	}
+	return nil
+}
+
+func (a *App) cmdIOC(args []string) error {
+	if len(args) == 0 {
+		return a.iocList()
+	}
+	c := a.Cases.Current()
+	var data []byte
+	var source string
+	if args[0] == "--from-output" {
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ioc --from-output <name>")
+		}
+		if c == nil {
+			return fmt.Errorf("no case is open")
+		}
+		source = args[1]
+		b, err := os.ReadFile(filepath.Join(c.Path, "output", source))
+		if err != nil {
+			return fmt.Errorf("read output %q: %w", source, err)
+		}
+		data = b
+	} else {
+		source = args[0]
+		b, err := os.ReadFile(source)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", source, err)
+		}
+		data = b
+	}
+
+	inds := ioc.Extract(data)
+	if len(inds) == 0 {
+		fmt.Println("No indicators found.")
+		return nil
+	}
+
+	tbl := ui.Table{Headers: []string{"TYPE", "VALUE"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft}}
+	counts := map[string]int{}
+	now := time.Now().Format(time.RFC3339)
+	for _, ind := range inds {
+		tbl.Rows = append(tbl.Rows, []string{ind.Type, ind.Value})
+		counts[ind.Type]++
+		if c != nil {
+			_ = c.AppendIOC(cases.IOCRecord{Type: ind.Type, Value: ind.Value, Source: source, Time: now})
+		}
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	if c != nil {
+		_ = c.AppendEvent(cases.TimelineEvent{
+			Type: "ioc_extracted", Timestamp: now,
+			Payload: map[string]any{"source": source, "counts": counts, "total": len(inds)},
+		})
+		fmt.Printf("→ %d indicators tracked\n", len(inds))
+	}
+	return nil
+}
+
+func (a *App) iocList() error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	iocs := c.IOCs()
+	if len(iocs) == 0 {
+		fmt.Println("No IOCs tracked. Extract with: ioc <file>")
+		return nil
+	}
+	tbl := ui.Table{Headers: []string{"TYPE", "VALUE", "SOURCE"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft}}
+	for _, i := range iocs {
+		tbl.Rows = append(tbl.Rows, []string{i.Type, i.Value, i.Source})
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	return nil
 }
 
