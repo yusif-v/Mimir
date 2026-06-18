@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unknown commands passed to the shell no longer rewrap the exit code as `error: exit status N`
 - Startup banner shows the correct version
 
+### Changed
+- Tab completion no longer does per-keystroke disk work: the embedded tool catalog is parsed once and cached, and case-name completion lists case directories without loading each case's metadata and timeline
+
 ### Planned
 - Export case to JSON archive
 - Evidence management (add, tag, hash workflow)
