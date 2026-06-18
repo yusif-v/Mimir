@@ -212,3 +212,39 @@ func TestCmdShellSucceeds(t *testing.T) {
 		t.Errorf("expected nil for successful command, got %v", err)
 	}
 }
+
+func TestContextLineNoCase(t *testing.T) {
+	t.Setenv("MIMIR_ASCII", "1")
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus())}
+	line := app.contextLine()
+	if !strings.Contains(line, "mimir") {
+		t.Fatalf("expected 'mimir' segment, got %q", line)
+	}
+	if strings.Contains(line, "❯") {
+		t.Fatalf("context line should not contain the input marker: %q", line)
+	}
+}
+
+func TestContextLineWithOpenCase(t *testing.T) {
+	t.Setenv("MIMIR_ASCII", "1")
+	base := t.TempDir()
+	app := &App{Cases: cases.NewManager(base, events.NewBus())}
+	if _, err := app.Cases.Create("incident-42"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Cases.Open("incident-42"); err != nil {
+		t.Fatal(err)
+	}
+	line := app.contextLine()
+	if !strings.Contains(line, "incident-42") {
+		t.Fatalf("expected case name in context line, got %q", line)
+	}
+}
+
+func TestBuildPromptMarker(t *testing.T) {
+	t.Setenv("MIMIR_ASCII", "1")
+	app := &App{}
+	if got := app.buildPrompt(); !strings.Contains(got, "|>") {
+		t.Fatalf("ASCII marker expected, got %q", got)
+	}
+}

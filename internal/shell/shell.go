@@ -93,6 +93,7 @@ func (a *App) Run() error {
 	fmt.Println(banner())
 
 	for {
+		fmt.Println(a.contextLine())
 		a.rl.SetPrompt(a.buildPrompt())
 
 		line, err := a.rl.Readline()
@@ -122,24 +123,67 @@ func (a *App) Run() error {
 	}
 }
 
-func (a *App) buildPrompt() string {
-	currentUser, _ := user.Current()
-	username := currentUser.Username
-	if username == "" {
-		username = "user"
+// asciiMode is true when the user opted out of icons/color for the prompt.
+func asciiMode() bool {
+	return os.Getenv("MIMIR_ASCII") != "" || os.Getenv("NO_COLOR") != ""
+}
+
+// colorize wraps s unless NO_COLOR is set.
+func colorize(s, color string) string {
+	if os.Getenv("NO_COLOR") != "" {
+		return s
+	}
+	return color + s + colorReset
+}
+
+// user_Current returns the current OS username.
+func user_Current() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.Username, nil
+}
+
+// contextLine is the Starship-style segment line printed above the input marker.
+func (a *App) contextLine() string {
+	u := "user"
+	if name, err := user_Current(); err == nil && name != "" {
+		u = name
+	}
+	ascii := asciiMode()
+	seg := func(icon, text, color string) string {
+		if ascii {
+			return text
+		}
+		return colorize(icon+" "+text, color)
 	}
 
-	if a.Cases.Current() != nil {
-		return fmt.Sprintf("%s[%s]%s%s[mimir]%s%s[%s]%s |> ",
-			colorGreen, username, colorReset,
-			colorCyan, colorReset,
-			colorYellow, a.Cases.Current().Name, colorReset,
-		)
+	parts := []string{
+		seg("", u, colorGreen),
+		seg("", "mimir", colorCyan),
 	}
-	return fmt.Sprintf("%s[%s]%s%s[mimir]%s |> ",
-		colorGreen, username, colorReset,
-		colorCyan, colorReset,
-	)
+	if c := a.Cases.Current(); c != nil {
+		parts = append(parts, seg("", c.Name, colorYellow))
+		status := "open"
+		scol := colorGreen
+		if c.Status != "open" {
+			status, scol = "closed", colorDim
+		}
+		parts = append(parts, seg("", status, scol))
+	}
+	sep := "  "
+	if ascii {
+		sep = " · "
+	}
+	return strings.Join(parts, sep)
+}
+
+func (a *App) buildPrompt() string {
+	if asciiMode() {
+		return "|> "
+	}
+	return colorize("❯", colorGreen) + " "
 }
 
 func (a *App) dispatch(line string) error {
