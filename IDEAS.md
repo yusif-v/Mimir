@@ -48,6 +48,18 @@ the point is to capture them before they evaporate.
   and events to surface "this looks unusual" moments the analyst might miss.
   Status: `raw`
 
+### Sandbox
+
+- **Per-case Docker sandbox** — opt-in isolated container per case for running
+  tools and ad-hoc commands. Not all cases need it — only the nasty ones
+  (malware, APT). Zero behavior change for normal cases.
+  Commands: `sandbox start|stop|exec|shell|status|destroy`.
+  Case metadata tracks sandbox state (container ID, image, started-at).
+  Mounts case evidence/ (ro) and output/ (rw) inside the container.
+  Configurable image, network policy (`--network none` default), and
+  resource limits (CPU/memory).
+  Status: `backlog`
+
 ### Evidence & Analysis
 
 - **Evidence deduplication** — across cases, identify when the same file/sample
