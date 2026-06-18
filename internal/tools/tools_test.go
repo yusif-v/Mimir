@@ -147,25 +147,23 @@ func TestRunnerDockerAvailable(t *testing.T) {
 }
 
 func TestOutputCaptureRecord(t *testing.T) {
-	tmpDir := t.TempDir()
-	caseDir := filepath.Join(tmpDir, "case")
-	os.MkdirAll(caseDir, 0755)
-
 	bus := events.NewBus()
+	caseDir := t.TempDir()
 	oc := tools.NewOutputCapture(bus)
 
-	if err := oc.Record("test-tool", "test output", caseDir); err != nil {
-		t.Fatalf("Record failed: %v", err)
-	}
-
-	// Check file was created
-	outputDir := filepath.Join(caseDir, "output")
-	entries, err := os.ReadDir(outputDir)
+	path, err := oc.Record("test-tool", "test output", caseDir)
 	if err != nil {
-		t.Fatalf("ReadDir failed: %v", err)
+		t.Fatalf("Record: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("expected 1 output file, got %d", len(entries))
+	if path == "" {
+		t.Fatal("expected non-empty output path")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if string(data) != "test output" {
+		t.Errorf("output = %q, want %q", string(data), "test output")
 	}
 }
 

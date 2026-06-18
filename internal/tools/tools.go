@@ -452,11 +452,11 @@ func NewOutputCapture(bus *events.Bus) *OutputCapture {
 	return &OutputCapture{events: bus}
 }
 
-// Record saves tool output to the case output directory.
-func (oc *OutputCapture) Record(toolName, output, casePath string) error {
+// Record saves tool output to the case output directory and returns the path.
+func (oc *OutputCapture) Record(toolName, output, casePath string) (string, error) {
 	outputDir := filepath.Join(casePath, "output")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
+		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
@@ -464,14 +464,14 @@ func (oc *OutputCapture) Record(toolName, output, casePath string) error {
 	outputFile := filepath.Join(outputDir, filename)
 
 	if err := os.WriteFile(outputFile, []byte(output), 0644); err != nil {
-		return fmt.Errorf("write output: %w", err)
+		return "", fmt.Errorf("write output: %w", err)
 	}
 
 	oc.events.Emit(events.OutputCaptured, map[string]any{
 		"tool": toolName,
 		"path": outputFile,
 	})
-	return nil
+	return outputFile, nil
 }
 
 // Status describes whether an installed tool is usable right now.
