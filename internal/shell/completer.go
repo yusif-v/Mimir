@@ -149,11 +149,12 @@ type sources struct {
 // per the context rules in the v0.3 spec.
 func complete(line string, s sources) ([][]rune, int) {
 	fields := strings.Fields(line)
-	trailing := line == "" || strings.HasSuffix(line, " ")
-
 	if len(fields) == 0 {
 		return matchSuffixes("", s.commands)
 	}
+	// Past the guard fields is non-empty, so an empty line can't reach here;
+	// a trailing space means the cursor starts a fresh (empty) word.
+	trailing := strings.HasSuffix(line, " ")
 
 	var completed []string
 	var word string
