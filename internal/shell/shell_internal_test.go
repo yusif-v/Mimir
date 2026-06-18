@@ -183,3 +183,22 @@ func TestCmdBuildDockerDown(t *testing.T) {
 		t.Fatalf("expected docker-not-available error, got %v", err)
 	}
 }
+
+func TestCmdShellQuietsExitError(t *testing.T) {
+	app := &App{}
+	// `false` exits 1; its nonzero exit must NOT surface as a Mimir error.
+	if err := app.cmdShell("false"); err != nil {
+		t.Errorf("expected nil for nonzero subprocess exit, got %v", err)
+	}
+	// A command-not-found inside sh exits 127; sh prints its own message.
+	if err := app.cmdShell("this_command_definitely_does_not_exist_xyz"); err != nil {
+		t.Errorf("expected nil for in-shell command-not-found, got %v", err)
+	}
+}
+
+func TestCmdShellSucceeds(t *testing.T) {
+	app := &App{}
+	if err := app.cmdShell("true"); err != nil {
+		t.Errorf("expected nil for successful command, got %v", err)
+	}
+}

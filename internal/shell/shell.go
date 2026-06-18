@@ -3,6 +3,7 @@ package shell
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -492,12 +493,22 @@ func (a *App) cmdClear(args []string) error {
 }
 
 func (a *App) cmdShell(line string) error {
-	// Shell passthrough
+	// Shell passthrough. The operator runs arbitrary shell commands by design,
+	// so `sh -c` is intentional (pipes/globs/redirects). We only refine error
+	// reporting: a subprocess that exits non-zero already printed its own
+	// message to stderr, so we don't rewrap that as a Mimir `error:`.
 	cmd := exec.Command("sh", "-c", line)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil // subprocess self-reported on stderr
+		}
+		return err // failed to launch sh, etc.
+	}
+	return nil
 }
 
 // buildImage builds a Docker image from a template directory by shelling out
