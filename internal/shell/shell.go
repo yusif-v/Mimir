@@ -230,6 +230,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdIOC(args)
 	case "clear":
 		return a.cmdClear(args)
+	case "search":
+		return a.cmdSearch(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -251,6 +253,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
 	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
+	fmt.Printf("  %ssearch%s     find cases matching a query across all cases\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -309,16 +312,33 @@ func (a *App) cmdCases(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	statusFilter := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--status" && i+1 < len(args) {
+			statusFilter = args[i+1]
+			i++
+		}
+	}
+
 	if len(allCases) == 0 {
 		fmt.Println("No cases found.")
 		return nil
 	}
+	printed := 0
 	for _, c := range allCases {
+		if statusFilter != "" && c.Status != statusFilter {
+			continue
+		}
 		statusColor := colorGreen
 		if c.Status == "closed" {
 			statusColor = colorDim
 		}
 		fmt.Printf("  %s[%s]%s %s  (%s)\n", statusColor, c.Status, colorReset, c.Name, c.Path)
+		printed++
+	}
+	if printed == 0 {
+		fmt.Println("No cases found.")
 	}
 	return nil
 }
@@ -694,6 +714,66 @@ func (a *App) iocList() error {
 	}
 	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	return nil
+}
+
+func (a *App) cmdSearch(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: search <query>")
+	}
+	q := strings.ToLower(strings.Join(args, " "))
+	all, err := a.Cases.List()
+	if err != nil {
+		return fmt.Errorf("list cases: %w", err)
+	}
+	tbl := ui.Table{Headers: []string{"CASE", "MATCHED IN"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft}}
+	for _, c := range all {
+		if ok, where := caseMatches(c, q); ok {
+			tbl.Rows = append(tbl.Rows, []string{c.Name, where})
+		}
+	}
+	if len(tbl.Rows) == 0 {
+		fmt.Println("No matching cases.")
+		return nil
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	return nil
+}
+
+// caseMatches reports whether the lowercased query appears in the case and a
+// hint naming the field(s) it matched.
+func caseMatches(c *cases.Case, lowerQuery string) (bool, string) {
+	var where []string
+	mark := func(field, hay string) {
+		if strings.Contains(strings.ToLower(hay), lowerQuery) && !containsShell(where, field) {
+			where = append(where, field)
+		}
+	}
+	mark("name", c.Name)
+	for _, n := range c.Notes {
+		mark("notes", n.Content)
+	}
+	for _, tl := range c.ToolsUsed {
+		mark("tools", tl)
+	}
+	for k, v := range c.Metadata {
+		mark("metadata", k+" "+v)
+	}
+	for _, e := range c.Evidence() {
+		mark("evidence", e.Name+" "+strings.Join(e.Tags, " "))
+	}
+	for _, i := range c.IOCs() {
+		mark("ioc", i.Value)
+	}
+	return len(where) > 0, strings.Join(where, ", ")
+}
+
+func containsShell(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) cmdClear(args []string) error {

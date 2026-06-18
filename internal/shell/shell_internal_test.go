@@ -436,6 +436,26 @@ func TestCmdIOCExtractAndTrack(t *testing.T) {
 	}
 }
 
+func TestCaseMatches(t *testing.T) {
+	base := t.TempDir()
+	bus := events.NewBus()
+	mgr := cases.NewManager(base, bus)
+	c, _ := mgr.Create("incident-42")
+	c.AddNote("found a suspicious beacon", "analyst")
+	_ = c.Save()
+
+	ok, where := caseMatches(c, "beacon")
+	if !ok {
+		t.Fatal("expected note match")
+	}
+	if !strings.Contains(where, "notes") {
+		t.Errorf("hint should mention notes, got %q", where)
+	}
+	if ok, _ := caseMatches(c, "nothinghere"); ok {
+		t.Fatal("unexpected match")
+	}
+}
+
 func TestFilterTimeline(t *testing.T) {
 	evs := []cases.TimelineEvent{
 		{Type: "tool_run", Payload: map[string]any{"tool": "hash"}},
