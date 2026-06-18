@@ -765,19 +765,23 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	dest := filepath.Join(c.Path, "evidence", name)
 	srcAbs, _ := filepath.Abs(src)
 	destAbs, _ := filepath.Abs(dest)
-	if srcAbs != destAbs { // external → copy in
-		if existing, err := os.Stat(dest); err == nil && existing.Mode().IsRegular() {
-			if h1, _ := hashFile(src); func() string { h2, _ := hashFile(dest); return h2 }() != h1 {
-				return fmt.Errorf("evidence %q already exists with a different hash — refusing to overwrite", name)
-			}
-		}
-		if err := copyFile(src, dest); err != nil {
-			return fmt.Errorf("copy evidence: %w", err)
-		}
-	}
-	sum, err := hashFile(dest)
+	sum, err := hashFile(src)
 	if err != nil {
 		return fmt.Errorf("hash evidence: %w", err)
+	}
+	if srcAbs != destAbs { // external source → copy into evidence/
+		if existing, statErr := os.Stat(dest); statErr == nil && existing.Mode().IsRegular() {
+			destSum, err := hashFile(dest)
+			if err != nil {
+				return fmt.Errorf("hash existing evidence: %w", err)
+			}
+			if destSum != sum {
+				return fmt.Errorf("evidence %q already exists with a different hash — refusing to overwrite", name)
+			}
+			// identical content already present → idempotent, skip copy
+		} else if err := copyFile(src, dest); err != nil {
+			return fmt.Errorf("copy evidence: %w", err)
+		}
 	}
 	now := time.Now().Format(time.RFC3339)
 	if err := c.AppendEvidence(cases.EvidenceRecord{
@@ -789,7 +793,11 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 		Type: "evidence_added", Timestamp: now,
 		Payload: map[string]any{"name": name, "sha256": sum, "tags": tags},
 	})
-	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, sum[:12])
+	short := sum
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, short)
 	return nil
 }
 
@@ -816,10 +824,12 @@ func (a *App) evidenceVerify(c *cases.Case, args []string) error {
 		want = args[0]
 	}
 	ok := true
+	checked := 0
 	for _, e := range c.Evidence() {
 		if want != "" && e.Name != want {
 			continue
 		}
+		checked++
 		path := filepath.Join(c.Path, "evidence", e.Name)
 		sum, err := hashFile(path)
 		if err != nil {
@@ -833,6 +843,10 @@ func (a *App) evidenceVerify(c *cases.Case, args []string) error {
 		} else {
 			fmt.Printf("%s%-20s ok%s\n", colorGreen, e.Name, colorReset)
 		}
+	}
+	if want != "" && checked == 0 {
+		fmt.Printf("evidence not found: %s\n", want)
+		return fmt.Errorf("evidence not found: %s", want)
 	}
 	if !ok {
 		return fmt.Errorf("evidence verification found problems")

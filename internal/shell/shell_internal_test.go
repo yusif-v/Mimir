@@ -301,6 +301,108 @@ func contains(s []string, v string) bool {
 	return false
 }
 
+func newTestAppWithCase(t *testing.T) (*App, *cases.Case) {
+	t.Helper()
+	base := t.TempDir()
+	bus := events.NewBus()
+	app := &App{
+		Config: &config.Config{CasesPath: base},
+		Events: bus,
+		Cases:  cases.NewManager(base, bus),
+	}
+	if _, err := app.Cases.Create("tc"); err != nil {
+		t.Fatalf("create case: %v", err)
+	}
+	c, err := app.Cases.Open("tc")
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+	return app, c
+}
+
+func TestCmdEvidenceOverwriteRefused(t *testing.T) {
+	app, c := newTestAppWithCase(t)
+
+	// Add first file "a.bin" containing "abc" from an external dir.
+	dir1 := t.TempDir()
+	src1 := filepath.Join(dir1, "a.bin")
+	if err := os.WriteFile(src1, []byte("abc"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.cmdEvidence([]string{"add", src1}); err != nil {
+		t.Fatalf("first add failed: %v", err)
+	}
+
+	// Record original hash.
+	ev := c.Evidence()
+	if len(ev) == 0 {
+		t.Fatal("no evidence after first add")
+	}
+	originalHash := ev[0].SHA256
+
+	// Attempt to add a DIFFERENT file also named "a.bin" from a second dir.
+	dir2 := t.TempDir()
+	src2 := filepath.Join(dir2, "a.bin")
+	if err := os.WriteFile(src2, []byte("xyz"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := app.cmdEvidence([]string{"add", src2})
+	if err == nil {
+		t.Fatal("expected overwrite-refusal error, got nil")
+	}
+	if !strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+
+	// Original hash must be unchanged.
+	latest := c.Evidence()
+	if latest[0].SHA256 != originalHash {
+		t.Fatalf("hash changed after refused overwrite: got %q want %q", latest[0].SHA256, originalHash)
+	}
+}
+
+func TestCmdEvidenceInPlace(t *testing.T) {
+	app, c := newTestAppWithCase(t)
+
+	// Write a file directly into the case's evidence/ directory.
+	evidenceDir := filepath.Join(c.Path, "evidence")
+	if err := os.MkdirAll(evidenceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	inplace := filepath.Join(evidenceDir, "inplace.bin")
+	if err := os.WriteFile(inplace, []byte("inplace-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add the file using its absolute path (same as dest → in-place).
+	if err := app.cmdEvidence([]string{"add", inplace}); err != nil {
+		t.Fatalf("in-place add failed: %v", err)
+	}
+
+	ev := c.Evidence()
+	if len(ev) == 0 {
+		t.Fatal("no evidence recorded for in-place file")
+	}
+	if ev[0].SHA256 == "" {
+		t.Fatal("expected non-empty SHA256 for in-place evidence")
+	}
+	if ev[0].Name != "inplace.bin" {
+		t.Fatalf("unexpected evidence name: %q", ev[0].Name)
+	}
+}
+
+func TestCmdEvidenceVerifyMissingName(t *testing.T) {
+	app, _ := newTestAppWithCase(t)
+
+	err := app.cmdEvidence([]string{"verify", "ghost"})
+	if err == nil {
+		t.Fatal("expected error when verifying non-existent evidence name, got nil")
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("error should mention the missing name, got: %v", err)
+	}
+}
+
 func TestFilterTimeline(t *testing.T) {
 	evs := []cases.TimelineEvent{
 		{Type: "tool_run", Payload: map[string]any{"tool": "hash"}},
