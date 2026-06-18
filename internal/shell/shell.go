@@ -16,6 +16,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/yusif-v/mimir/internal/builtins"
+	"github.com/yusif-v/mimir/internal/casearchive"
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
@@ -232,6 +233,10 @@ func (a *App) dispatch(line string) error {
 		return a.cmdClear(args)
 	case "search":
 		return a.cmdSearch(args)
+	case "export":
+		return a.cmdExport(args)
+	case "import":
+		return a.cmdImport(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -254,6 +259,8 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	fmt.Printf("  %ssearch%s     find cases matching a query across all cases\n", colorGreen, colorReset)
+	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json]\n", colorGreen, colorReset)
+	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -780,6 +787,66 @@ func (a *App) cmdClear(args []string) error {
 	cmd := exec.Command("clear")
 	cmd.Stdout = os.Stdout
 	cmd.Run()
+	return nil
+}
+
+func (a *App) cmdExport(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	jsonMode := false
+	includeOutput := true
+	out := ""
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonMode = true
+		case "--no-output":
+			includeOutput = false
+		default:
+			out = arg
+		}
+	}
+	if jsonMode {
+		if out == "" {
+			out = c.Name + ".json"
+		}
+		if err := casearchive.ExportJSON(c, out); err != nil {
+			return err
+		}
+		fmt.Printf("exported %s\n", out)
+		return nil
+	}
+	if out == "" {
+		out = c.Name + ".tar.gz"
+	}
+	if err := casearchive.Export(c.Path, out, includeOutput); err != nil {
+		return err
+	}
+	fmt.Printf("exported %s\n", out)
+	return nil
+}
+
+func (a *App) cmdImport(args []string) error {
+	asName := ""
+	archive := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--as" && i+1 < len(args) {
+			asName = args[i+1]
+			i++
+			continue
+		}
+		archive = args[i]
+	}
+	if archive == "" {
+		return fmt.Errorf("usage: import <archive.tar.gz> [--as <name>]")
+	}
+	name, err := casearchive.Import(archive, a.Config.CasesPath, asName)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("imported case %s%s%s\n", colorGreen, name, colorReset)
 	return nil
 }
 
