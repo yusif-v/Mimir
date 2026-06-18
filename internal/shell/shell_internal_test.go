@@ -155,6 +155,13 @@ func TestCmdRunRecordsFailedRun(t *testing.T) {
 	}
 }
 
+func TestCmdTimelineNoCase(t *testing.T) {
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus())}
+	if err := app.cmdTimeline(nil); err == nil {
+		t.Fatal("expected error when no case is open")
+	}
+}
+
 // TestCmdBuildDockerDown verifies that building an installed docker tool while
 // the Docker daemon is unreachable yields the friendly docker-down error rather
 // than a raw `docker build` failure. Skips when Docker is actually available.

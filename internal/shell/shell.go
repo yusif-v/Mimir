@@ -145,6 +145,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdUse(args)
 	case "note":
 		return a.cmdNote(args)
+	case "timeline":
+		return a.cmdTimeline(args)
 	case "clear":
 		return a.cmdClear(args)
 	default:
@@ -164,6 +166,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
+	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	return nil
 }
@@ -299,6 +302,18 @@ func (a *App) cmdTools(args []string) error {
 		}
 	}
 
+	// BUILT-IN section: native-Go tools, always ready.
+	bi := builtins.List()
+	if len(bi) > 0 {
+		fmt.Printf("\n%sBUILT-IN%s\n", colorCyan, colorReset)
+		for _, m := range bi {
+			fmt.Printf("  %s%-16s%s [builtin] %sready%s      %s\n",
+				colorGreen, m.Name, colorReset,
+				colorGreen, colorReset,
+				m.Description)
+		}
+	}
+
 	// docker footer
 	if dockerUp {
 		fmt.Printf("\ndocker: %srunning%s\n", colorGreen, colorReset)
@@ -418,6 +433,55 @@ func (a *App) cmdNote(args []string) error {
 		return err
 	}
 	return c.Save()
+}
+
+func (a *App) cmdTimeline(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+
+	evs := c.Timeline()
+	// Optional: timeline -n N tails the last N events.
+	if len(args) == 2 && args[0] == "-n" {
+		n := 0
+		if _, err := fmt.Sscanf(args[1], "%d", &n); err == nil && n > 0 && n < len(evs) {
+			evs = evs[len(evs)-n:]
+		}
+	}
+
+	if len(evs) == 0 {
+		fmt.Println("Timeline is empty.")
+		return nil
+	}
+
+	for _, ev := range evs {
+		ts := ev.Timestamp
+		if t, err := time.Parse(time.RFC3339, ev.Timestamp); err == nil {
+			ts = t.Format("15:04:05")
+		}
+		switch ev.Type {
+		case "tool_run":
+			color := colorGreen
+			if ev.Payload["success"] != true {
+				color = colorRed
+			}
+			fmt.Printf("%s  %s▶%s run %v %v → code %v (%vms) %s[%v]%s\n",
+				ts, color, colorReset,
+				ev.Payload["tool"], ev.Payload["args"],
+				ev.Payload["return_code"], ev.Payload["duration_ms"],
+				colorDim, ev.Payload["output_file"], colorReset)
+		case "note":
+			fmt.Printf("%s  %s✎%s note: %v\n", ts, colorCyan, colorReset, ev.Payload["content"])
+		case "case_opened":
+			fmt.Printf("%s  %s•%s case opened\n", ts, colorYellow, colorReset)
+		case "case_closed":
+			fmt.Printf("%s  %s•%s case closed\n", ts, colorYellow, colorReset)
+		default:
+			fmt.Printf("%s  %s\n", ts, ev.Type)
+		}
+	}
+	return nil
 }
 
 func (a *App) cmdClear(args []string) error {
