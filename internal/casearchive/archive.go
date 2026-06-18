@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/yusif-v/mimir/internal/cases"
 )
@@ -35,6 +36,7 @@ func Export(caseDir, outPath string, includeOutput bool) error {
 
 	name := filepath.Base(caseDir)
 	man := Manifest{Name: name, Evidence: map[string]string{}}
+	man.Exported = time.Now().Format(time.RFC3339)
 
 	walkErr := filepath.Walk(caseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -210,14 +212,14 @@ func verifyEvidence(root string) {
 		path := filepath.Join(root, "evidence", name)
 		f, err := os.Open(path)
 		if err != nil {
-			fmt.Printf("warning: evidence %q missing after import\n", name)
+			fmt.Fprintf(os.Stderr, "warning: evidence %q missing after import\n", name)
 			continue
 		}
 		h := sha256.New()
 		io.Copy(h, f)
 		f.Close()
 		if hex.EncodeToString(h.Sum(nil)) != want {
-			fmt.Printf("warning: evidence %q hash mismatch after import\n", name)
+			fmt.Fprintf(os.Stderr, "warning: evidence %q hash mismatch after import\n", name)
 		}
 	}
 }

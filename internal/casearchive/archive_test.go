@@ -1,6 +1,8 @@
 package casearchive
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,5 +47,36 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 	if name2 == "c1" {
 		t.Fatalf("expected non-colliding name, got %q", name2)
+	}
+}
+
+func TestImportRejectsZipSlip(t *testing.T) {
+	// Build a tar.gz whose entry escapes the target dir via ../
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "evil.tar.gz")
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	// top-level dir entry so the importer derives a name, then an escaping file
+	body := []byte("pwned")
+	hdr := &tar.Header{Name: "evilcase/../../escape.txt", Mode: 0644, Size: int64(len(body)), Typeflag: tar.TypeReg}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	tw.Write(body)
+	tw.Close()
+	gz.Close()
+	f.Close()
+
+	dest := t.TempDir()
+	if _, err := Import(archivePath, dest, ""); err == nil {
+		t.Fatal("expected Import to reject zip-slip archive, got nil error")
+	}
+	// And confirm nothing was written outside dest
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dest), "escape.txt")); err == nil {
+		t.Fatal("zip-slip wrote a file outside the target dir")
 	}
 }
