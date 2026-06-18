@@ -31,12 +31,12 @@ const (
 
 // App ties together all subsystems.
 type App struct {
-	Config  *config.Config
-	Events  *events.Bus
-	Cases   *cases.Manager
-	Tools   *tools.Registry
-	Runner  *tools.Runner
-	Output  *tools.OutputCapture
+	Config *config.Config
+	Events *events.Bus
+	Cases  *cases.Manager
+	Tools  *tools.Registry
+	Runner *tools.Runner
+	Output *tools.OutputCapture
 }
 
 // NewApp creates a new shell app with all subsystems wired.

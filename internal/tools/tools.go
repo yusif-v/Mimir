@@ -143,15 +143,15 @@ func ParseTemplate(data []byte, path string) (*Definition, error) {
 	}
 
 	def := &Definition{
-		Name:        tmpl.Tool.Name,
-		Description: tmpl.Tool.Description,
-		Category:    tmpl.Tool.Category,
-		DockerImage: tmpl.Docker.Image,
-		Tags:        tmpl.Tool.Tags,
+		Name:         tmpl.Tool.Name,
+		Description:  tmpl.Tool.Description,
+		Category:     tmpl.Tool.Category,
+		DockerImage:  tmpl.Docker.Image,
+		Tags:         tmpl.Tool.Tags,
 		TemplatePath: path,
-		Entrypoint:  tmpl.Docker.Entrypoint,
-		WorkDir:     tmpl.Docker.WorkDir,
-		Metadata:    map[string]string{},
+		Entrypoint:   tmpl.Docker.Entrypoint,
+		WorkDir:      tmpl.Docker.WorkDir,
+		Metadata:     map[string]string{},
 	}
 
 	for _, v := range tmpl.Docker.Volumes {

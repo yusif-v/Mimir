@@ -12,9 +12,9 @@ import (
 
 // Manager handles case lifecycle.
 type Manager struct {
-	storage  *Storage
-	events   *events.Bus
-	current  *Case
+	storage *Storage
+	events  *events.Bus
+	current *Case
 }
 
 // NewManager creates a new case manager.

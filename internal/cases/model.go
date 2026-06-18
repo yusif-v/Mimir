@@ -13,16 +13,16 @@ import (
 
 // Case represents an investigation case.
 type Case struct {
-	Name       string            `json:"name"`
-	Path       string            `json:"path"`
-	CreatedAt  string            `json:"created_at"`
-	OpenedAt   string            `json:"opened_at,omitempty"`
-	ClosedAt   string            `json:"closed_at,omitempty"`
-	Status     string            `json:"status"` // open, closed
-	ToolsUsed  []string          `json:"tools_used"`
-	Notes      []Note            `json:"notes"`
-	Metadata   map[string]string `json:"metadata"`
-	events     []TimelineEvent   `json:"-"`
+	Name      string            `json:"name"`
+	Path      string            `json:"path"`
+	CreatedAt string            `json:"created_at"`
+	OpenedAt  string            `json:"opened_at,omitempty"`
+	ClosedAt  string            `json:"closed_at,omitempty"`
+	Status    string            `json:"status"` // open, closed
+	ToolsUsed []string          `json:"tools_used"`
+	Notes     []Note            `json:"notes"`
+	Metadata  map[string]string `json:"metadata"`
+	events    []TimelineEvent   `json:"-"`
 }
 
 // Note is an annotation added by the analyst.
