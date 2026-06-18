@@ -329,24 +329,38 @@ func (a *App) cmdCases(args []string) error {
 	}
 
 	if len(allCases) == 0 {
-		fmt.Println("No cases found.")
+		fmt.Println("No cases.")
 		return nil
 	}
-	printed := 0
+
+	tbl := ui.Table{
+		Headers: []string{"CASE", "STATUS", "TOOLS", "OPENED"},
+		Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignRight, ui.AlignLeft},
+	}
 	for _, c := range allCases {
 		if statusFilter != "" && c.Status != statusFilter {
 			continue
 		}
-		statusColor := colorGreen
+		statusIcon := "● open"
 		if c.Status == "closed" {
-			statusColor = colorDim
+			statusIcon = "○ closed"
 		}
-		fmt.Printf("  %s[%s]%s %s  (%s)\n", statusColor, c.Status, colorReset, c.Name, c.Path)
-		printed++
+		opened := c.CreatedAt
+		if len(opened) >= 10 {
+			opened = opened[:10]
+		}
+		tbl.Rows = append(tbl.Rows, []string{
+			c.Name,
+			statusIcon,
+			fmt.Sprintf("%d", len(c.ToolsUsed)),
+			opened,
+		})
 	}
-	if printed == 0 {
+	if len(tbl.Rows) == 0 {
 		fmt.Println("No cases found.")
+		return nil
 	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	return nil
 }
 

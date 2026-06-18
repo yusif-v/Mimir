@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned
-- Export case to JSON archive
-- Evidence management (add, tag, hash workflow)
+### Added
+- Evidence management: `evidence`/`ev` add/tag/verify/list, append-only `evidence.jsonl` (SHA-256), evidence timeline events
+- Case export (`export` → tar.gz + manifest.json, `--no-output`, `--json`) and import (`import`, auto-rename on conflict, hash verification)
+- Cross-case `search` and `cases --status` filter
+- Timeline filtering: `timeline --type` and `--grep`
+- Built-in tools: `hexdump`, `entropy`, `decode`
+- IOC extraction & tracking: `ioc <file>` / `--from-output`, append-only `ioc.jsonl`
+- Starship-style prompt (context line + `❯`, ASCII fallback via `MIMIR_ASCII`/`NO_COLOR`)
+- Bordered box-table output for `cases`, `evidence`, `ioc`, `search`, and `timeline` (degrades to plain when piped/narrow)
 
 ## [0.3.0] - 2026-06-18
 
