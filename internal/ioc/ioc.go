@@ -15,7 +15,7 @@ var (
 	reURL    = regexp.MustCompile(`\bhttps?://[^\s"'<>]+`)
 	reEmail  = regexp.MustCompile(`\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b`)
 	reIPv4   = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	reIPv6   = regexp.MustCompile(`(?:[0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F]{0,4}`)
+	reIPv6   = regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*::(?:[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*)?\b`)
 	reSHA256 = regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`)
 	reSHA1   = regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`)
 	reMD5    = regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`)
@@ -23,9 +23,8 @@ var (
 )
 
 // Extract returns deduplicated indicators found in data, sorted by type then
-// value. Hash precedence (sha256 > sha1 > md5) prevents a 64-hex string from
-// also matching md5/sha1; emails/URLs are extracted before bare domains so the
-// domain regex does not double-count their host parts.
+// value. Emails/URLs are extracted before bare domains. The dedupe key is
+// type+value, so URL hosts are also emitted as separate domain indicators.
 func Extract(data []byte) []Indicator {
 	s := string(data)
 	seen := map[string]bool{}
@@ -38,22 +37,16 @@ func Extract(data []byte) []Indicator {
 		}
 	}
 
-	// Hashes, longest first so shorter hash regexes don't claim substrings.
-	consumed := map[string]bool{} // hex strings already claimed as a longer hash
+	// Hashes extracted independently; \b anchors prevent reSHA1/reMD5 from
+	// matching a substring within a contiguous 64-hex SHA256 token.
 	for _, m := range reSHA256.FindAllString(s, -1) {
 		add("sha256", m)
-		consumed[m] = true
 	}
 	for _, m := range reSHA1.FindAllString(s, -1) {
-		if !isSubOfConsumed(m, consumed) {
-			add("sha1", m)
-			consumed[m] = true
-		}
+		add("sha1", m)
 	}
 	for _, m := range reMD5.FindAllString(s, -1) {
-		if !isSubOfConsumed(m, consumed) {
-			add("md5", m)
-		}
+		add("md5", m)
 	}
 
 	for _, m := range reURL.FindAllString(s, -1) {
@@ -79,22 +72,4 @@ func Extract(data []byte) []Indicator {
 		return out[i].Value < out[j].Value
 	})
 	return out
-}
-
-func isSubOfConsumed(m string, consumed map[string]bool) bool {
-	for c := range consumed {
-		if len(c) > len(m) && (indexOf(c, m) >= 0) {
-			return true
-		}
-	}
-	return false
-}
-
-func indexOf(haystack, needle string) int {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return i
-		}
-	}
-	return -1
 }
