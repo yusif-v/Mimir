@@ -105,7 +105,9 @@ func TestModelSerialization(t *testing.T) {
 	os.MkdirAll(caseDir, 0755)
 
 	c := cases.NewCase("test", caseDir)
-	c.AddNote("test note", "analyst")
+	if err := c.AddNote("test note", "analyst"); err != nil {
+		t.Fatalf("AddNote: %v", err)
+	}
 	c.AddToolUsage("volatility")
 	if err := c.Save(); err != nil {
 		t.Fatalf("Save failed: %v", err)

@@ -9,7 +9,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
@@ -29,12 +31,12 @@ const (
 
 // App ties together all subsystems.
 type App struct {
-	Config  *config.Config
-	Events  *events.Bus
-	Cases   *cases.Manager
-	Tools   *tools.Registry
-	Runner  *tools.Runner
-	Output  *tools.OutputCapture
+	Config *config.Config
+	Events *events.Bus
+	Cases  *cases.Manager
+	Tools  *tools.Registry
+	Runner *tools.Runner
+	Output *tools.OutputCapture
 }
 
 // NewApp creates a new shell app with all subsystems wired.
@@ -143,6 +145,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdUse(args)
 	case "note":
 		return a.cmdNote(args)
+	case "timeline":
+		return a.cmdTimeline(args)
 	case "clear":
 		return a.cmdClear(args)
 	default:
@@ -162,6 +166,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
+	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	return nil
 }
@@ -297,6 +302,18 @@ func (a *App) cmdTools(args []string) error {
 		}
 	}
 
+	// BUILT-IN section: native-Go tools, always ready.
+	bi := builtins.List()
+	if len(bi) > 0 {
+		fmt.Printf("\n%sBUILT-IN%s\n", colorCyan, colorReset)
+		for _, m := range bi {
+			fmt.Printf("  %s%-16s%s [builtin] %sready%s      %s\n",
+				colorGreen, m.Name, colorReset,
+				colorGreen, colorReset,
+				m.Description)
+		}
+	}
+
 	// docker footer
 	if dockerUp {
 		fmt.Printf("\ndocker: %srunning%s\n", colorGreen, colorReset)
@@ -314,29 +331,81 @@ func (a *App) cmdRun(args []string) error {
 	toolName := args[0]
 	toolArgs := args[1:]
 
-	tool, ok := a.Tools.Get(toolName)
-	if !ok {
-		return fmt.Errorf("tool not found: %s", toolName)
-	}
-
 	casePath := ""
 	if c := a.Cases.Current(); c != nil {
 		casePath = c.Path
 	}
 
-	result := a.Runner.Run(tool, toolArgs, casePath)
-	if result.Success() {
-		if result.Stdout != "" {
-			fmt.Print(result.Stdout)
+	var result *tools.Result
+	if builtins.Has(toolName) {
+		result = a.Runner.RunBuiltin(toolName, toolArgs)
+	} else {
+		tool, ok := a.Tools.Get(toolName)
+		if !ok {
+			return fmt.Errorf("tool not found: %s", toolName)
 		}
-		if c := a.Cases.Current(); c != nil {
-			c.AddToolUsage(toolName)
-			c.Save()
+		result = a.Runner.Run(tool, toolArgs, casePath)
+	}
+
+	if result.Stdout != "" {
+		fmt.Print(result.Stdout)
+	}
+	if result.Stderr != "" {
+		fmt.Fprint(os.Stderr, result.Stderr)
+	}
+
+	// Record into the open case (output file + timeline event), even on failure.
+	if c := a.Cases.Current(); c != nil {
+		a.recordRun(c, result)
+		c.AddToolUsage(toolName)
+		if err := c.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s save case: %v\n", colorYellow, colorReset, err)
 		}
-	} else if result.Error != nil {
+	}
+
+	if !result.Success() && result.Error != nil {
 		return result.Error
 	}
 	return nil
+}
+
+// recordRun saves output to the case and appends a tool_run timeline event.
+// Failures are surfaced as warnings — never silently swallowed — but do not
+// abort the run result already shown to the analyst.
+func (a *App) recordRun(c *cases.Case, result *tools.Result) {
+	outputRel := ""
+	if outputPath, err := a.Output.Record(result.Tool, result.Stdout, c.Path); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s capture output: %v\n", colorYellow, colorReset, err)
+	} else if rel, err := filepath.Rel(c.Path, outputPath); err == nil {
+		outputRel = rel
+	} else {
+		outputRel = outputPath
+	}
+
+	payload := map[string]any{
+		"tool":        result.Tool,
+		"args":        result.Args,
+		"return_code": result.ReturnCode,
+		"duration_ms": result.Duration().Milliseconds(),
+		"output_file": outputRel,
+		"success":     result.Success(),
+	}
+	if !result.Success() {
+		stderrMsg := result.Stderr
+		if stderrMsg == "" && result.Error != nil {
+			stderrMsg = result.Error.Error()
+		}
+		if stderrMsg != "" {
+			payload["stderr"] = stderrMsg
+		}
+	}
+	if err := c.AppendEvent(cases.TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: time.Now().Format(time.RFC3339),
+		Payload:   payload,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+	}
 }
 
 func (a *App) cmdUse(args []string) error {
@@ -360,8 +429,59 @@ func (a *App) cmdNote(args []string) error {
 		return fmt.Errorf("no case is open")
 	}
 	content := strings.Join(args, " ")
-	c.AddNote(content, "analyst")
+	if err := c.AddNote(content, "analyst"); err != nil {
+		return err
+	}
 	return c.Save()
+}
+
+func (a *App) cmdTimeline(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+
+	evs := c.Timeline()
+	// Optional: timeline -n N tails the last N events.
+	if len(args) == 2 && args[0] == "-n" {
+		n := 0
+		if _, err := fmt.Sscanf(args[1], "%d", &n); err == nil && n > 0 && n < len(evs) {
+			evs = evs[len(evs)-n:]
+		}
+	}
+
+	if len(evs) == 0 {
+		fmt.Println("Timeline is empty.")
+		return nil
+	}
+
+	for _, ev := range evs {
+		ts := ev.Timestamp
+		if t, err := time.Parse(time.RFC3339, ev.Timestamp); err == nil {
+			ts = t.Format("15:04:05")
+		}
+		switch ev.Type {
+		case "tool_run":
+			color := colorGreen
+			if ev.Payload["success"] != true {
+				color = colorRed
+			}
+			fmt.Printf("%s  %s▶%s run %v %v → code %v (%vms) %s[%v]%s\n",
+				ts, color, colorReset,
+				ev.Payload["tool"], ev.Payload["args"],
+				ev.Payload["return_code"], ev.Payload["duration_ms"],
+				colorDim, ev.Payload["output_file"], colorReset)
+		case "note":
+			fmt.Printf("%s  %s✎%s note: %v\n", ts, colorCyan, colorReset, ev.Payload["content"])
+		case "case_opened":
+			fmt.Printf("%s  %s•%s case opened\n", ts, colorYellow, colorReset)
+		case "case_closed":
+			fmt.Printf("%s  %s•%s case closed\n", ts, colorYellow, colorReset)
+		default:
+			fmt.Printf("%s  %s\n", ts, ev.Type)
+		}
+	}
+	return nil
 }
 
 func (a *App) cmdClear(args []string) error {

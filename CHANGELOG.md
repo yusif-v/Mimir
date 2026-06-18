@@ -7,13 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Append-only per-case timeline (`timeline.jsonl`) with in-memory cache
+- Tool runs recorded to case output + timeline (success and failure)
+- Notes and case open/close recorded on the timeline
+- Native-Go built-in tools: `hash`, `strings`, `file` (no Docker required)
+- `timeline` command (chronological view, `-n` tail)
+- `OutputCapture.Record` now returns the written output path
+
 ### Planned
-- Local subprocess execution (os/exec)
-- Docker-based tool sandboxing
-- Tool template system (mimir.toml)
-- Built-in DFIR tools (hash, file info, strings, timeline)
-- Case timeline view (unified tool runs + notes)
 - Export case to JSON archive
+- Evidence management (add, tag, hash workflow)
 
 ## [0.1.0] - 2026-06-17
 

@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/events"
 )
 
@@ -142,15 +143,15 @@ func ParseTemplate(data []byte, path string) (*Definition, error) {
 	}
 
 	def := &Definition{
-		Name:        tmpl.Tool.Name,
-		Description: tmpl.Tool.Description,
-		Category:    tmpl.Tool.Category,
-		DockerImage: tmpl.Docker.Image,
-		Tags:        tmpl.Tool.Tags,
+		Name:         tmpl.Tool.Name,
+		Description:  tmpl.Tool.Description,
+		Category:     tmpl.Tool.Category,
+		DockerImage:  tmpl.Docker.Image,
+		Tags:         tmpl.Tool.Tags,
 		TemplatePath: path,
-		Entrypoint:  tmpl.Docker.Entrypoint,
-		WorkDir:     tmpl.Docker.WorkDir,
-		Metadata:    map[string]string{},
+		Entrypoint:   tmpl.Docker.Entrypoint,
+		WorkDir:      tmpl.Docker.WorkDir,
+		Metadata:     map[string]string{},
 	}
 
 	for _, v := range tmpl.Docker.Volumes {
@@ -399,6 +400,26 @@ func (r *Runner) runLocal(cmd string, args []string, result *Result) *Result {
 	return result
 }
 
+// RunBuiltin executes a native-Go built-in tool, producing the same Result
+// shape as Docker/local runs so capture and timeline recording are uniform.
+func (r *Runner) RunBuiltin(name string, args []string) *Result {
+	r.events.Emit(events.ToolStarted, map[string]any{"tool": name, "args": args})
+
+	result := &Result{Tool: name, Args: args, StartedAt: time.Now()}
+	out, err := builtins.Run(name, args)
+	result.Stdout = out
+	result.FinishedAt = time.Now()
+
+	if err != nil {
+		result.Error = err
+		result.ReturnCode = 1
+		r.events.Emit(events.ToolError, map[string]any{"tool": name, "error": err})
+	} else {
+		r.events.Emit(events.ToolFinished, map[string]any{"tool": name, "output": out})
+	}
+	return result
+}
+
 // Result holds the outcome of a tool run.
 type Result struct {
 	Tool       string
@@ -431,11 +452,11 @@ func NewOutputCapture(bus *events.Bus) *OutputCapture {
 	return &OutputCapture{events: bus}
 }
 
-// Record saves tool output to the case output directory.
-func (oc *OutputCapture) Record(toolName, output, casePath string) error {
+// Record saves tool output to the case output directory and returns the path.
+func (oc *OutputCapture) Record(toolName, output, casePath string) (string, error) {
 	outputDir := filepath.Join(casePath, "output")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
+		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
@@ -443,14 +464,14 @@ func (oc *OutputCapture) Record(toolName, output, casePath string) error {
 	outputFile := filepath.Join(outputDir, filename)
 
 	if err := os.WriteFile(outputFile, []byte(output), 0644); err != nil {
-		return fmt.Errorf("write output: %w", err)
+		return "", fmt.Errorf("write output: %w", err)
 	}
 
 	oc.events.Emit(events.OutputCaptured, map[string]any{
 		"tool": toolName,
 		"path": outputFile,
 	})
-	return nil
+	return outputFile, nil
 }
 
 // Status describes whether an installed tool is usable right now.

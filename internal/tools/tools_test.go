@@ -147,24 +147,56 @@ func TestRunnerDockerAvailable(t *testing.T) {
 }
 
 func TestOutputCaptureRecord(t *testing.T) {
-	tmpDir := t.TempDir()
-	caseDir := filepath.Join(tmpDir, "case")
-	os.MkdirAll(caseDir, 0755)
-
 	bus := events.NewBus()
+	caseDir := t.TempDir()
 	oc := tools.NewOutputCapture(bus)
 
-	if err := oc.Record("test-tool", "test output", caseDir); err != nil {
-		t.Fatalf("Record failed: %v", err)
+	path, err := oc.Record("test-tool", "test output", caseDir)
+	if err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if path == "" {
+		t.Fatal("expected non-empty output path")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if string(data) != "test output" {
+		t.Errorf("output = %q, want %q", string(data), "test output")
+	}
+}
+
+func TestRunBuiltin(t *testing.T) {
+	bus := events.NewBus()
+	r := tools.NewRunner(bus)
+
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(fp, []byte("abc"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
-	// Check file was created
-	outputDir := filepath.Join(caseDir, "output")
-	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		t.Fatalf("ReadDir failed: %v", err)
+	res := r.RunBuiltin("hash", []string{fp})
+	if !res.Success() {
+		t.Fatalf("expected success, err=%v code=%d", res.Error, res.ReturnCode)
 	}
-	if len(entries) != 1 {
-		t.Errorf("expected 1 output file, got %d", len(entries))
+	if res.Tool != "hash" {
+		t.Errorf("Tool = %q, want hash", res.Tool)
+	}
+	if res.Stdout == "" {
+		t.Error("expected hash output")
+	}
+}
+
+func TestRunBuiltinFailure(t *testing.T) {
+	bus := events.NewBus()
+	r := tools.NewRunner(bus)
+	res := r.RunBuiltin("hash", []string{"/no/such/file"})
+	if res.Success() {
+		t.Fatal("expected failure for missing file")
+	}
+	if res.ReturnCode == 0 {
+		t.Error("expected non-zero return code")
 	}
 }
