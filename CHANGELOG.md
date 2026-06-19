@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-19
+
 ### Added
 - Evidence management: `evidence`/`ev` add/tag/verify/list, append-only `evidence.jsonl` (SHA-256), evidence timeline events
 - Case export (`export` → tar.gz + manifest.json, `--no-output`, `--json`) and import (`import`, auto-rename on conflict, hash verification)
@@ -65,4 +67,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [0.1.0]: https://github.com/yusif-v/Mimir/releases/tag/v0.1.0
 [0.3.0]: https://github.com/yusif-v/Mimir/compare/v0.1.0...v0.3.0
-[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.3.0...HEAD
+[0.4.0]: https://github.com/yusif-v/Mimir/compare/v0.3.0...v0.4.0
+[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.4.0...HEAD
