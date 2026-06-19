@@ -90,9 +90,11 @@ the point is to capture them before they evaporate.
 - **TheHive / Cortex integration** — create cases in TheHive from Mimir,
   run Cortex analyzers. Status: `raw`
 
-- **Yggdrasil graph queries** — once Yggdrasil exists, query the graph DB
-  from Mimir: "show me all cases involving this hash" or "map relationships
-  between these IOCs." Status: `raw`
+- **Yggdrasil integration** — push case data, timelines, IOCs, and evidence
+  metadata into Yggdrasil's knowledge graph. Query from Mimir: "show me all
+  cases involving this hash" or "map relationships between these IOCs."
+  Yggdrasil becomes the central hub connecting Mimir, Heimdall, and Horus.
+  Status: `raw`
 
 - **Heimdall alert ingestion** — pull alerts from Heimdall (SIEM) and auto-create
   cases in Mimir. Close the loop: detection → investigation → response.
@@ -160,6 +162,40 @@ the point is to capture them before they evaporate.
 
 - **Undo / event correction** — append-only means no deletes, but allow
   appending correction/retraction events to the timeline. Status: `raw`
+
+---
+
+## Ecosystem Projects
+
+### Yggdrasil — Knowledge Management Platform
+
+Local-first, graph-based knowledge management. Think: between GitHub and
+Obsidian. The central hub that connects all ecosystem projects.
+
+_This section is for Yggdrasil-specific ideas, not Mimir features._
+
+- **Knowledge graph** — bi-directional links between notes, auto-generated
+  graph view, backlinks. Core Obsidian-like feature. Status: `raw`
+
+- **Git-backed collaboration** — push/pull/share knowledge bases. PR-like
+  merge workflow for contributions. Version history built in.
+  Status: `raw`
+
+- **Mimir case ingestion** — import Mimir case exports as knowledge nodes.
+  Link investigations to threat intel, IOCs, reports. Status: `raw`
+
+- **Heimdall alert feed** — ingest alerts as timestamped nodes in the graph.
+  Correlate with Mimir cases and threat intel. Status: `raw`
+
+- **Horus scan result import** — scan results become queryable knowledge.
+  Track IOC sightings across time and sources. Status: `raw`
+
+- **Graph queries** — query language for the knowledge graph: "find all paths
+  between these nodes," "what's connected to this IP across all sources."
+  Status: `raw`
+
+- **Local-first + sync** — files are local markdown by default. Optional sync
+  for teams. Status: `raw`
 
 ---
 

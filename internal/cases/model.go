@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -23,6 +24,8 @@ type Case struct {
 	Notes     []Note            `json:"notes"`
 	Metadata  map[string]string `json:"metadata"`
 	events    []TimelineEvent   `json:"-"`
+	evidence  []Evidence        `json:"-"`
+	iocs      []IOC             `json:"-"`
 }
 
 // Note is an annotation added by the analyst.
@@ -71,6 +74,12 @@ func LoadCase(path string) (*Case, error) {
 	}
 	if err := c.loadTimeline(); err != nil {
 		return nil, fmt.Errorf("load timeline: %w", err)
+	}
+	if err := c.loadEvidence(); err != nil {
+		return nil, fmt.Errorf("load evidence: %w", err)
+	}
+	if err := c.loadIOC(); err != nil {
+		return nil, fmt.Errorf("load ioc: %w", err)
 	}
 	return &c, nil
 }
@@ -164,6 +173,199 @@ func (c *Case) loadTimeline() error {
 		c.events = append(c.events, ev)
 	}
 	return scanner.Err()
+}
+
+// --- Evidence ---
+
+type EvidenceRecord struct {
+	Op     string   `json:"op"`
+	Name   string   `json:"name"`
+	SHA256 string   `json:"sha256,omitempty"`
+	Size   int64    `json:"size,omitempty"`
+	Source string   `json:"source,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
+	Time   string   `json:"time"`
+}
+
+type Evidence struct {
+	Name    string
+	SHA256  string
+	Source  string
+	AddedAt string
+	Size    int64
+	Tags    []string
+}
+
+func (c *Case) AppendEvidence(rec EvidenceRecord) error {
+	if err := appendJSONL(filepath.Join(c.Path, "evidence.jsonl"), rec); err != nil {
+		return err
+	}
+	// Re-fold from disk (which now includes rec) — do NOT append rec again.
+	return c.loadEvidence()
+}
+
+func (c *Case) Evidence() []Evidence { return c.evidence }
+
+func (c *Case) loadEvidence() error {
+	recs, err := readEvidenceRecords(filepath.Join(c.Path, "evidence.jsonl"))
+	if err != nil {
+		return err
+	}
+	c.evidence = foldEvidence(recs)
+	return nil
+}
+
+// --- IOC ---
+
+type IOCRecord struct {
+	Type   string `json:"type"`
+	Value  string `json:"value"`
+	Source string `json:"source"`
+	Time   string `json:"time"`
+}
+
+type IOC struct {
+	Type   string
+	Value  string
+	Source string
+	Time   string
+}
+
+func (c *Case) AppendIOC(rec IOCRecord) error {
+	if err := appendJSONL(filepath.Join(c.Path, "ioc.jsonl"), rec); err != nil {
+		return err
+	}
+	c.iocs = append(c.iocs, IOC(rec))
+	c.iocs = dedupeIOCs(c.iocs)
+	return nil
+}
+
+func (c *Case) IOCs() []IOC { return c.iocs }
+
+func (c *Case) loadIOC() error {
+	recs, err := readIOCRecords(filepath.Join(c.Path, "ioc.jsonl"))
+	if err != nil {
+		return err
+	}
+	var iocs []IOC
+	for _, r := range recs {
+		iocs = append(iocs, IOC(r))
+	}
+	c.iocs = dedupeIOCs(iocs)
+	return nil
+}
+
+// --- Shared JSONL helpers ---
+
+func appendJSONL(path string, v any) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", filepath.Base(path), err)
+	}
+	defer f.Close()
+	line, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	}
+	return nil
+}
+
+func readEvidenceRecords(path string) ([]EvidenceRecord, error) {
+	var out []EvidenceRecord
+	err := scanJSONL(path, func(line []byte) {
+		var r EvidenceRecord
+		if json.Unmarshal(line, &r) == nil {
+			out = append(out, r)
+		} else {
+			log.Printf("evidence: skipping corrupt line in %s", path)
+		}
+	})
+	return out, err
+}
+
+func readIOCRecords(path string) ([]IOCRecord, error) {
+	var out []IOCRecord
+	err := scanJSONL(path, func(line []byte) {
+		var r IOCRecord
+		if json.Unmarshal(line, &r) == nil {
+			out = append(out, r)
+		} else {
+			log.Printf("ioc: skipping corrupt line in %s", path)
+		}
+	})
+	return out, err
+}
+
+func scanJSONL(path string, fn func([]byte)) error {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("open %s: %w", filepath.Base(path), err)
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if len(sc.Bytes()) == 0 {
+			continue
+		}
+		fn(sc.Bytes())
+	}
+	return sc.Err()
+}
+
+func foldEvidence(recs []EvidenceRecord) []Evidence {
+	byName := map[string]*Evidence{}
+	var order []string
+	for _, r := range recs {
+		e, ok := byName[r.Name]
+		if !ok {
+			e = &Evidence{Name: r.Name}
+			byName[r.Name] = e
+			order = append(order, r.Name)
+		}
+		if r.Op == "add" {
+			e.SHA256, e.Size, e.Source, e.AddedAt = r.SHA256, r.Size, r.Source, r.Time
+		}
+		for _, tag := range r.Tags {
+			if !containsStr(e.Tags, tag) {
+				e.Tags = append(e.Tags, tag)
+			}
+		}
+	}
+	sort.Strings(order)
+	out := make([]Evidence, 0, len(order))
+	for _, name := range order {
+		out = append(out, *byName[name])
+	}
+	return out
+}
+
+func dedupeIOCs(in []IOC) []IOC {
+	seen := map[string]bool{}
+	var out []IOC
+	for _, i := range in {
+		k := i.Type + "\x00" + i.Value
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func containsStr(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // Scaffold creates the case directory structure.

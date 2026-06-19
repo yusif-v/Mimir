@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,5 +82,59 @@ func TestRunUnknownTool(t *testing.T) {
 func TestMissingFileErrors(t *testing.T) {
 	if _, err := Run("hash", []string{"/no/such/file"}); err == nil {
 		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestHexdump(t *testing.T) {
+	p := writeFixture(t, "h.bin", []byte("AB"))
+	out, err := Run("hexdump", []string{p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "41 42") || !strings.Contains(out, "AB") {
+		t.Fatalf("unexpected hexdump:\n%s", out)
+	}
+}
+
+func TestEntropy(t *testing.T) {
+	const0 := writeFixture(t, "c.bin", bytes.Repeat([]byte{0x00}, 1024))
+	out, err := Run("entropy", []string{const0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "0.00") {
+		t.Fatalf("constant bytes should be ~0 entropy, got:\n%s", out)
+	}
+}
+
+func TestDecodeBase64(t *testing.T) {
+	out, err := Run("decode", []string{"--base64", "aGVsbG8="})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Fatalf("want 'hello', got %q", out)
+	}
+}
+
+func TestDecodeAutoHex(t *testing.T) {
+	out, err := Run("decode", []string{"68656c6c6f"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Fatalf("want 'hello' from auto hex, got %q", out)
+	}
+}
+
+func TestDecodeAutoPrefersHex(t *testing.T) {
+	// "68656c6c6f6f" is valid hex ("helloo") AND a valid base64 length (12).
+	// Auto-detect must pick hex first.
+	out, err := Run("decode", []string{"68656c6c6f6f"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "(hex)") || !strings.Contains(out, "helloo") {
+		t.Fatalf("want hex-decoded 'helloo', got %q", out)
 	}
 }

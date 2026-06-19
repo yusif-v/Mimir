@@ -6,11 +6,16 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
+	"strings"
 )
 
 // Fn is a built-in tool implementation.
@@ -31,6 +36,9 @@ var registry = map[string]entry{
 	"hash":    {Meta{"hash", "md5/sha1/sha256 digests of a file"}, hashTool},
 	"strings": {Meta{"strings", "printable ASCII runs in a file (-n min length)"}, stringsTool},
 	"file":    {Meta{"file", "identify file type by magic bytes"}, fileTool},
+	"hexdump": {Meta{"hexdump", "canonical hex + ASCII dump of a file"}, hexdumpTool},
+	"entropy": {Meta{"entropy", "Shannon entropy (bits/byte); flags packed/encrypted"}, entropyTool},
+	"decode":  {Meta{"decode", "decode base64/hex/url input (--base64|--hex|--url, else auto)"}, decodeTool},
 }
 
 // Has reports whether name is a built-in tool.
@@ -177,4 +185,143 @@ func sniffMagic(b []byte) string {
 		return "GZIP compressed data"
 	}
 	return ""
+}
+
+func hexdumpTool(args []string) (string, error) {
+	if len(args) < 1 {
+		return "", fmt.Errorf("usage: hexdump <file>")
+	}
+	f, err := openRegular(args[0])
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	var sb strings.Builder
+	buf := make([]byte, 16)
+	var offset int64
+	r := bufio.NewReader(f)
+	for {
+		n, err := io.ReadFull(r, buf)
+		if n == 0 {
+			break
+		}
+		chunk := buf[:n]
+		fmt.Fprintf(&sb, "%08x  ", offset)
+		for i := 0; i < 16; i++ {
+			if i < n {
+				fmt.Fprintf(&sb, "%02x ", chunk[i])
+			} else {
+				sb.WriteString("   ")
+			}
+			if i == 7 {
+				sb.WriteByte(' ')
+			}
+		}
+		sb.WriteString(" |")
+		for _, b := range chunk {
+			if b >= 0x20 && b <= 0x7e {
+				sb.WriteByte(b)
+			} else {
+				sb.WriteByte('.')
+			}
+		}
+		sb.WriteString("|\n")
+		offset += int64(n)
+		if err != nil { // io.ErrUnexpectedEOF on final short read, or io.EOF
+			break
+		}
+	}
+	return sb.String(), nil
+}
+
+func entropyTool(args []string) (string, error) {
+	if len(args) < 1 {
+		return "", fmt.Errorf("usage: entropy <file>")
+	}
+	f, err := openRegular(args[0])
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	var counts [256]uint64
+	var total uint64
+	buf := make([]byte, 64*1024)
+	for {
+		n, err := f.Read(buf)
+		for _, b := range buf[:n] {
+			counts[b]++
+		}
+		total += uint64(n)
+		if err != nil {
+			break
+		}
+	}
+	if total == 0 {
+		return "entropy: 0.00 bits/byte (empty file)\n", nil
+	}
+	var h float64
+	for _, c := range counts {
+		if c == 0 {
+			continue
+		}
+		p := float64(c) / float64(total)
+		h -= p * math.Log2(p)
+	}
+	note := ""
+	if h >= 7.5 {
+		note = "  (high — likely packed/encrypted)"
+	}
+	return fmt.Sprintf("entropy: %.2f bits/byte%s\n", h, note), nil
+}
+
+func decodeTool(args []string) (string, error) {
+	if len(args) < 1 {
+		return "", fmt.Errorf("usage: decode [--base64|--hex|--url] <input>")
+	}
+	mode := "auto"
+	var input string
+	for _, a := range args {
+		switch a {
+		case "--base64":
+			mode = "base64"
+		case "--hex":
+			mode = "hex"
+		case "--url":
+			mode = "url"
+		default:
+			input = a
+		}
+	}
+	if input == "" {
+		return "", fmt.Errorf("decode: no input")
+	}
+	try := func(m string) ([]byte, bool) {
+		switch m {
+		case "base64":
+			b, err := base64.StdEncoding.DecodeString(input)
+			return b, err == nil
+		case "hex":
+			b, err := hex.DecodeString(input)
+			return b, err == nil
+		case "url":
+			s, err := url.QueryUnescape(input)
+			return []byte(s), err == nil
+		}
+		return nil, false
+	}
+	if mode != "auto" {
+		b, ok := try(mode)
+		if !ok {
+			return "", fmt.Errorf("decode: input is not valid %s", mode)
+		}
+		return string(b) + "\n", nil
+	}
+	for _, m := range []string{"hex", "base64", "url"} {
+		if b, ok := try(m); ok {
+			return fmt.Sprintf("(%s) %s\n", m, string(b)), nil
+		}
+	}
+	return "", fmt.Errorf("decode: could not auto-detect encoding")
 }

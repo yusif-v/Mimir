@@ -2,6 +2,8 @@
 package shell
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,11 +16,14 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/yusif-v/mimir/internal/builtins"
+	"github.com/yusif-v/mimir/internal/casearchive"
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
+	"github.com/yusif-v/mimir/internal/ioc"
 	"github.com/yusif-v/mimir/internal/tools"
+	"github.com/yusif-v/mimir/internal/ui"
 )
 
 // ANSI color codes
@@ -93,6 +98,7 @@ func (a *App) Run() error {
 	fmt.Println(banner())
 
 	for {
+		fmt.Println(a.contextLine())
 		a.rl.SetPrompt(a.buildPrompt())
 
 		line, err := a.rl.Readline()
@@ -122,24 +128,67 @@ func (a *App) Run() error {
 	}
 }
 
-func (a *App) buildPrompt() string {
-	currentUser, _ := user.Current()
-	username := currentUser.Username
-	if username == "" {
-		username = "user"
+// asciiMode is true when the user opted out of icons/color for the prompt.
+func asciiMode() bool {
+	return os.Getenv("MIMIR_ASCII") != "" || os.Getenv("NO_COLOR") != ""
+}
+
+// colorize wraps s unless NO_COLOR is set.
+func colorize(s, color string) string {
+	if os.Getenv("NO_COLOR") != "" {
+		return s
+	}
+	return color + s + colorReset
+}
+
+// user_Current returns the current OS username.
+func user_Current() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.Username, nil
+}
+
+// contextLine is the Starship-style segment line printed above the input marker.
+func (a *App) contextLine() string {
+	u := "user"
+	if name, err := user_Current(); err == nil && name != "" {
+		u = name
+	}
+	ascii := asciiMode()
+	seg := func(icon, text, color string) string {
+		if ascii {
+			return text
+		}
+		return colorize(icon+" "+text, color)
 	}
 
-	if a.Cases.Current() != nil {
-		return fmt.Sprintf("%s[%s]%s%s[mimir]%s%s[%s]%s |> ",
-			colorGreen, username, colorReset,
-			colorCyan, colorReset,
-			colorYellow, a.Cases.Current().Name, colorReset,
-		)
+	parts := []string{
+		seg("", u, colorGreen),
+		seg("", "mimir", colorCyan),
 	}
-	return fmt.Sprintf("%s[%s]%s%s[mimir]%s |> ",
-		colorGreen, username, colorReset,
-		colorCyan, colorReset,
-	)
+	if c := a.Cases.Current(); c != nil {
+		parts = append(parts, seg("", c.Name, colorYellow))
+		status := "open"
+		scol := colorGreen
+		if c.Status != "open" {
+			status, scol = "closed", colorDim
+		}
+		parts = append(parts, seg("", status, scol))
+	}
+	sep := "  "
+	if ascii {
+		sep = " · "
+	}
+	return strings.Join(parts, sep)
+}
+
+func (a *App) buildPrompt() string {
+	if asciiMode() {
+		return "|> "
+	}
+	return colorize("❯", colorGreen) + " "
 }
 
 func (a *App) dispatch(line string) error {
@@ -174,10 +223,20 @@ func (a *App) dispatch(line string) error {
 		return a.cmdUse(args)
 	case "note":
 		return a.cmdNote(args)
+	case "evidence", "ev":
+		return a.cmdEvidence(args)
 	case "timeline":
 		return a.cmdTimeline(args)
+	case "ioc":
+		return a.cmdIOC(args)
 	case "clear":
 		return a.cmdClear(args)
+	case "search":
+		return a.cmdSearch(args)
+	case "export":
+		return a.cmdExport(args)
+	case "import":
+		return a.cmdImport(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -195,8 +254,13 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
+	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify\n", colorGreen, colorReset)
 	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
+	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
+	fmt.Printf("  %ssearch%s     find cases matching a query across all cases\n", colorGreen, colorReset)
+	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json]\n", colorGreen, colorReset)
+	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -255,17 +319,48 @@ func (a *App) cmdCases(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	statusFilter := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--status" && i+1 < len(args) {
+			statusFilter = args[i+1]
+			i++
+		}
+	}
+
 	if len(allCases) == 0 {
+		fmt.Println("No cases.")
+		return nil
+	}
+
+	tbl := ui.Table{
+		Headers: []string{"CASE", "STATUS", "TOOLS", "OPENED"},
+		Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignRight, ui.AlignLeft},
+	}
+	for _, c := range allCases {
+		if statusFilter != "" && c.Status != statusFilter {
+			continue
+		}
+		statusIcon := "● open"
+		if c.Status == "closed" {
+			statusIcon = "○ closed"
+		}
+		opened := c.CreatedAt
+		if len(opened) >= 10 {
+			opened = opened[:10]
+		}
+		tbl.Rows = append(tbl.Rows, []string{
+			c.Name,
+			statusIcon,
+			fmt.Sprintf("%d", len(c.ToolsUsed)),
+			opened,
+		})
+	}
+	if len(tbl.Rows) == 0 {
 		fmt.Println("No cases found.")
 		return nil
 	}
-	for _, c := range allCases {
-		statusColor := colorGreen
-		if c.Status == "closed" {
-			statusColor = colorDim
-		}
-		fmt.Printf("  %s[%s]%s %s  (%s)\n", statusColor, c.Status, colorReset, c.Name, c.Path)
-	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	return nil
 }
 
@@ -464,6 +559,40 @@ func (a *App) cmdNote(args []string) error {
 	return c.Save()
 }
 
+// filterTimeline keeps events matching all supplied filters. types is a set of
+// event-type names (empty = any); grep is a case-insensitive substring matched
+// against the event type and its payload values (empty = any).
+func filterTimeline(evs []cases.TimelineEvent, types []string, grep string) []cases.TimelineEvent {
+	typeSet := map[string]bool{}
+	for _, t := range types {
+		typeSet[t] = true
+	}
+	grep = strings.ToLower(grep)
+	var out []cases.TimelineEvent
+	for _, ev := range evs {
+		if len(typeSet) > 0 && !typeSet[ev.Type] {
+			continue
+		}
+		if grep != "" && !eventMatches(ev, grep) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+func eventMatches(ev cases.TimelineEvent, lowerSub string) bool {
+	if strings.Contains(strings.ToLower(ev.Type), lowerSub) {
+		return true
+	}
+	for _, v := range ev.Payload {
+		if strings.Contains(strings.ToLower(fmt.Sprint(v)), lowerSub) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) cmdTimeline(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
@@ -471,12 +600,33 @@ func (a *App) cmdTimeline(args []string) error {
 	}
 
 	evs := c.Timeline()
-	// Optional: timeline -n N tails the last N events.
-	if len(args) == 2 && args[0] == "-n" {
-		n := 0
-		if _, err := fmt.Sscanf(args[1], "%d", &n); err == nil && n > 0 && n < len(evs) {
-			evs = evs[len(evs)-n:]
+
+	var types []string
+	grep := ""
+	tail := 0
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--type":
+			if i+1 < len(args) {
+				types = strings.Split(args[i+1], ",")
+				i++
+			}
+		case "--grep":
+			if i+1 < len(args) {
+				grep = args[i+1]
+				i++
+			}
+		case "-n":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &tail)
+				i++
+			}
 		}
+	}
+
+	evs = filterTimeline(evs, types, grep)
+	if tail > 0 && tail < len(evs) {
+		evs = evs[len(evs)-tail:]
 	}
 
 	if len(evs) == 0 {
@@ -513,10 +663,204 @@ func (a *App) cmdTimeline(args []string) error {
 	return nil
 }
 
+func (a *App) cmdIOC(args []string) error {
+	if len(args) == 0 {
+		return a.iocList()
+	}
+	c := a.Cases.Current()
+	var data []byte
+	var source string
+	if args[0] == "--from-output" {
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ioc --from-output <name>")
+		}
+		if c == nil {
+			return fmt.Errorf("no case is open")
+		}
+		source = args[1]
+		b, err := os.ReadFile(filepath.Join(c.Path, "output", source))
+		if err != nil {
+			return fmt.Errorf("read output %q: %w", source, err)
+		}
+		data = b
+	} else {
+		source = args[0]
+		b, err := os.ReadFile(source)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", source, err)
+		}
+		data = b
+	}
+
+	inds := ioc.Extract(data)
+	if len(inds) == 0 {
+		fmt.Println("No indicators found.")
+		return nil
+	}
+
+	tbl := ui.Table{Headers: []string{"TYPE", "VALUE"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft}}
+	counts := map[string]int{}
+	now := time.Now().Format(time.RFC3339)
+	for _, ind := range inds {
+		tbl.Rows = append(tbl.Rows, []string{ind.Type, ind.Value})
+		counts[ind.Type]++
+		if c != nil {
+			_ = c.AppendIOC(cases.IOCRecord{Type: ind.Type, Value: ind.Value, Source: source, Time: now})
+		}
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	if c != nil {
+		_ = c.AppendEvent(cases.TimelineEvent{
+			Type: "ioc_extracted", Timestamp: now,
+			Payload: map[string]any{"source": source, "counts": counts, "total": len(inds)},
+		})
+		fmt.Printf("→ %d indicators tracked\n", len(inds))
+	}
+	return nil
+}
+
+func (a *App) iocList() error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	iocs := c.IOCs()
+	if len(iocs) == 0 {
+		fmt.Println("No IOCs tracked. Extract with: ioc <file>")
+		return nil
+	}
+	tbl := ui.Table{Headers: []string{"TYPE", "VALUE", "SOURCE"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft}}
+	for _, i := range iocs {
+		tbl.Rows = append(tbl.Rows, []string{i.Type, i.Value, i.Source})
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	return nil
+}
+
+func (a *App) cmdSearch(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: search <query>")
+	}
+	q := strings.ToLower(strings.Join(args, " "))
+	all, err := a.Cases.List()
+	if err != nil {
+		return fmt.Errorf("list cases: %w", err)
+	}
+	tbl := ui.Table{Headers: []string{"CASE", "MATCHED IN"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft}}
+	for _, c := range all {
+		if ok, where := caseMatches(c, q); ok {
+			tbl.Rows = append(tbl.Rows, []string{c.Name, where})
+		}
+	}
+	if len(tbl.Rows) == 0 {
+		fmt.Println("No matching cases.")
+		return nil
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	return nil
+}
+
+// caseMatches reports whether the lowercased query appears in the case and a
+// hint naming the field(s) it matched.
+func caseMatches(c *cases.Case, lowerQuery string) (bool, string) {
+	var where []string
+	mark := func(field, hay string) {
+		if strings.Contains(strings.ToLower(hay), lowerQuery) && !containsShell(where, field) {
+			where = append(where, field)
+		}
+	}
+	mark("name", c.Name)
+	for _, n := range c.Notes {
+		mark("notes", n.Content)
+	}
+	for _, tl := range c.ToolsUsed {
+		mark("tools", tl)
+	}
+	for k, v := range c.Metadata {
+		mark("metadata", k+" "+v)
+	}
+	for _, e := range c.Evidence() {
+		mark("evidence", e.Name+" "+strings.Join(e.Tags, " "))
+	}
+	for _, i := range c.IOCs() {
+		mark("ioc", i.Value)
+	}
+	return len(where) > 0, strings.Join(where, ", ")
+}
+
+func containsShell(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) cmdClear(args []string) error {
 	cmd := exec.Command("clear")
 	cmd.Stdout = os.Stdout
 	cmd.Run()
+	return nil
+}
+
+func (a *App) cmdExport(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	jsonMode := false
+	includeOutput := true
+	out := ""
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonMode = true
+		case "--no-output":
+			includeOutput = false
+		default:
+			out = arg
+		}
+	}
+	if jsonMode {
+		if out == "" {
+			out = c.Name + ".json"
+		}
+		if err := casearchive.ExportJSON(c, out); err != nil {
+			return err
+		}
+		fmt.Printf("exported %s\n", out)
+		return nil
+	}
+	if out == "" {
+		out = c.Name + ".tar.gz"
+	}
+	if err := casearchive.Export(c.Path, out, includeOutput); err != nil {
+		return err
+	}
+	fmt.Printf("exported %s\n", out)
+	return nil
+}
+
+func (a *App) cmdImport(args []string) error {
+	asName := ""
+	archive := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--as" && i+1 < len(args) {
+			asName = args[i+1]
+			i++
+			continue
+		}
+		archive = args[i]
+	}
+	if archive == "" {
+		return fmt.Errorf("usage: import <archive.tar.gz> [--as <name>]")
+	}
+	name, err := casearchive.Import(archive, a.Config.CasesPath, asName)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("imported case %s%s%s\n", colorGreen, name, colorReset)
 	return nil
 }
 
@@ -613,6 +957,192 @@ func (a *App) cmdBuild(args []string) error {
 	}
 	fmt.Printf("%s%s rebuilt.%s\n", colorGreen, name, colorReset)
 	return nil
+}
+
+func (a *App) cmdEvidence(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	if len(args) == 0 {
+		return a.evidenceList(c)
+	}
+	switch args[0] {
+	case "add":
+		return a.evidenceAdd(c, args[1:])
+	case "tag":
+		return a.evidenceTag(c, args[1:])
+	case "verify":
+		return a.evidenceVerify(c, args[1:])
+	default:
+		return fmt.Errorf("usage: evidence [add <path> [--tag a,b] | tag <name> <tag>... | verify [name]]")
+	}
+}
+
+func (a *App) evidenceAdd(c *cases.Case, args []string) error {
+	var src string
+	var tags []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--tag" && i+1 < len(args) {
+			tags = strings.Split(args[i+1], ",")
+			i++
+			continue
+		}
+		src = args[i]
+	}
+	if src == "" {
+		return fmt.Errorf("usage: evidence add <path> [--tag a,b]")
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", src, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+	name := filepath.Base(src)
+	dest := filepath.Join(c.Path, "evidence", name)
+	srcAbs, _ := filepath.Abs(src)
+	destAbs, _ := filepath.Abs(dest)
+	sum, err := hashFile(src)
+	if err != nil {
+		return fmt.Errorf("hash evidence: %w", err)
+	}
+	if srcAbs != destAbs { // external source → copy into evidence/
+		if existing, statErr := os.Stat(dest); statErr == nil && existing.Mode().IsRegular() {
+			destSum, err := hashFile(dest)
+			if err != nil {
+				return fmt.Errorf("hash existing evidence: %w", err)
+			}
+			if destSum != sum {
+				return fmt.Errorf("evidence %q already exists with a different hash — refusing to overwrite", name)
+			}
+			// identical content already present → idempotent, skip copy
+		} else if err := copyFile(src, dest); err != nil {
+			return fmt.Errorf("copy evidence: %w", err)
+		}
+	}
+	now := time.Now().Format(time.RFC3339)
+	if err := c.AppendEvidence(cases.EvidenceRecord{
+		Op: "add", Name: name, SHA256: sum, Size: info.Size(), Source: src, Tags: tags, Time: now,
+	}); err != nil {
+		return err
+	}
+	_ = c.AppendEvent(cases.TimelineEvent{
+		Type: "evidence_added", Timestamp: now,
+		Payload: map[string]any{"name": name, "sha256": sum, "tags": tags},
+	})
+	short := sum
+	if len(short) > 12 {
+		short = short[:12]
+	}
+	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, short)
+	return nil
+}
+
+func (a *App) evidenceTag(c *cases.Case, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: evidence tag <name> <tag>...")
+	}
+	name, tags := args[0], args[1:]
+	now := time.Now().Format(time.RFC3339)
+	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "tag", Name: name, Tags: tags, Time: now}); err != nil {
+		return err
+	}
+	_ = c.AppendEvent(cases.TimelineEvent{
+		Type: "evidence_tagged", Timestamp: now,
+		Payload: map[string]any{"name": name, "tags": tags},
+	})
+	fmt.Printf("tagged %s: %s\n", name, strings.Join(tags, ", "))
+	return nil
+}
+
+func (a *App) evidenceVerify(c *cases.Case, args []string) error {
+	want := ""
+	if len(args) > 0 {
+		want = args[0]
+	}
+	ok := true
+	checked := 0
+	for _, e := range c.Evidence() {
+		if want != "" && e.Name != want {
+			continue
+		}
+		checked++
+		path := filepath.Join(c.Path, "evidence", e.Name)
+		sum, err := hashFile(path)
+		if err != nil {
+			fmt.Printf("%s%-20s MISSING%s\n", colorRed, e.Name, colorReset)
+			ok = false
+			continue
+		}
+		if sum != e.SHA256 {
+			fmt.Printf("%s%-20s MISMATCH%s\n", colorRed, e.Name, colorReset)
+			ok = false
+		} else {
+			fmt.Printf("%s%-20s ok%s\n", colorGreen, e.Name, colorReset)
+		}
+	}
+	if want != "" && checked == 0 {
+		fmt.Printf("evidence not found: %s\n", want)
+		return fmt.Errorf("evidence not found: %s", want)
+	}
+	if !ok {
+		return fmt.Errorf("evidence verification found problems")
+	}
+	return nil
+}
+
+func (a *App) evidenceList(c *cases.Case) error {
+	ev := c.Evidence()
+	if len(ev) == 0 {
+		fmt.Println("No evidence tracked. Add with: evidence add <path>")
+		return nil
+	}
+	tbl := ui.Table{
+		Headers: []string{"NAME", "SHA256", "SIZE", "TAGS"},
+		Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignRight, ui.AlignLeft},
+	}
+	for _, e := range ev {
+		short := e.SHA256
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		tbl.Rows = append(tbl.Rows, []string{e.Name, short, fmt.Sprintf("%d", e.Size), strings.Join(e.Tags, ",")})
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	return nil
+}
+
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // splitArgs splits a command line string into arguments, respecting quotes.
