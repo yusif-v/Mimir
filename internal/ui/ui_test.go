@@ -52,3 +52,21 @@ func TestRenderEmptyRows(t *testing.T) {
 		t.Fatal("expected at least a header row")
 	}
 }
+
+func TestRenderDegradesWhenWidthTooSmall(t *testing.T) {
+	tbl := Table{
+		Headers: []string{"CASE", "TOOLS"},
+		Rows:    [][]string{{"incident-42", "3"}},
+		Align:   []Align{AlignLeft, AlignRight},
+	}
+	var b bytes.Buffer
+	// plain=false, but width far too small for the box form → must degrade to plain.
+	tbl.Render(&b, 5, false)
+	out := b.String()
+	if strings.ContainsAny(out, "┌│└") {
+		t.Fatalf("narrow width must degrade to plain (no box chars):\n%s", out)
+	}
+	if !strings.Contains(out, "incident-42") {
+		t.Fatalf("content missing after degradation:\n%s", out)
+	}
+}
