@@ -10,6 +10,7 @@ import (
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
+	"github.com/yusif-v/mimir/internal/theme"
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
@@ -215,9 +216,9 @@ func TestCmdShellSucceeds(t *testing.T) {
 
 func TestContextLineNoCase(t *testing.T) {
 	t.Setenv("MIMIR_ASCII", "1")
-	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus())}
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus()), Theme: theme.DefaultTheme()}
 	line := app.contextLine()
-	if !strings.Contains(line, "mimir") {
+	if !strings.Contains(strings.ToLower(line), "mimir") {
 		t.Fatalf("expected 'mimir' segment, got %q", line)
 	}
 	if strings.Contains(line, "❯") {
@@ -228,7 +229,7 @@ func TestContextLineNoCase(t *testing.T) {
 func TestContextLineWithOpenCase(t *testing.T) {
 	t.Setenv("MIMIR_ASCII", "1")
 	base := t.TempDir()
-	app := &App{Cases: cases.NewManager(base, events.NewBus())}
+	app := &App{Cases: cases.NewManager(base, events.NewBus()), Theme: theme.DefaultTheme()}
 	if _, err := app.Cases.Create("incident-42"); err != nil {
 		t.Fatal(err)
 	}
@@ -243,8 +244,8 @@ func TestContextLineWithOpenCase(t *testing.T) {
 
 func TestBuildPromptMarker(t *testing.T) {
 	t.Setenv("MIMIR_ASCII", "1")
-	app := &App{}
-	if got := app.buildPrompt(); !strings.Contains(got, "|>") {
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus()), Theme: theme.DefaultTheme()}
+	if got := app.promptMarker(); !strings.Contains(got, ">") {
 		t.Fatalf("ASCII marker expected, got %q", got)
 	}
 }

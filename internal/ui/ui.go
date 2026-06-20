@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/term"
+	"golang.org/x/text/width"
 )
 
 type Align int
@@ -60,20 +62,45 @@ func (t Table) colWidths() []int {
 	n := len(t.Headers)
 	w := make([]int, n)
 	for i, h := range t.Headers {
-		w[i] = len(h)
+		w[i] = displayWidth(h)
 	}
 	for _, row := range t.Rows {
 		for i := 0; i < n && i < len(row); i++ {
-			if len(row[i]) > w[i] {
-				w[i] = len(row[i])
+			if displayWidth(row[i]) > w[i] {
+				w[i] = displayWidth(row[i])
 			}
 		}
 	}
 	return w
 }
 
+// displayWidth returns the monospace column width of s, ignoring ANSI
+// escape sequences (handled separately via Colorize).
+func displayWidth(s string) int {
+	w := 0
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		// ANSI escape sequences: ESC + [ + ... + m — zero width.
+		if r == 0x1b {
+			continue
+		}
+		// Zero-width combinators and similar.
+		switch width.LookupRune(r).Kind() {
+		case width.EastAsianWide, width.EastAsianFullwidth:
+			w += 2
+		default:
+			// EastAsianNarrow, EastAsianHalfwidth, EastAsianAmbiguous, Neutral — all 1 column.
+			w += 1
+		}
+	}
+	return w
+}
+
+// pad pads s to fill the given display width, respecting alignment.
 func pad(s string, width int, a Align) string {
-	gap := width - len(s)
+	cur := displayWidth(s)
+	gap := width - cur
 	if gap <= 0 {
 		return s
 	}

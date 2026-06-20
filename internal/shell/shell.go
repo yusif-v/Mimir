@@ -22,6 +22,7 @@ import (
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
 	"github.com/yusif-v/mimir/internal/ioc"
+	"github.com/yusif-v/mimir/internal/theme"
 	"github.com/yusif-v/mimir/internal/tools"
 	"github.com/yusif-v/mimir/internal/ui"
 )
@@ -31,6 +32,7 @@ const (
 	colorReset  = "\033[0m"
 	colorGreen  = "\033[32m"
 	colorCyan   = "\033[36m"
+	colorBlue   = "\033[34m"
 	colorYellow = "\033[33m"
 	colorRed    = "\033[31m"
 	colorDim    = "\033[2m"
@@ -52,6 +54,7 @@ type App struct {
 	Tools  *tools.Registry
 	Runner *tools.Runner
 	Output *tools.OutputCapture
+	Theme  theme.Theme
 	rl     *readline.Instance
 }
 
@@ -75,13 +78,14 @@ func NewApp(cfg *config.Config) *App {
 		Tools:  toolRegistry,
 		Runner: toolRunner,
 		Output: outputCapture,
+		Theme:  theme.DefaultTheme(),
 	}
 }
 
 // Run starts the interactive REPL.
 func (a *App) Run() error {
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:            a.buildPrompt(),
+		Prompt:            "",
 		HistoryFile:       a.Config.HistoryPath,
 		HistoryLimit:      1000,
 		HistorySearchFold: true,
@@ -99,10 +103,10 @@ func (a *App) Run() error {
 
 	for {
 		fmt.Println(a.contextLine())
-		a.rl.SetPrompt(a.buildPrompt())
-
+		rl.SetPrompt(a.promptMarker())
 		line, err := a.rl.Readline()
 		if errors.Is(err, readline.ErrInterrupt) {
+			fmt.Println()
 			continue // Ctrl+C cancels the current line; never exits
 		}
 		if errors.Is(err, io.EOF) {
@@ -115,6 +119,7 @@ func (a *App) Run() error {
 
 		line = strings.TrimSpace(line)
 		if line == "" {
+			fmt.Println()
 			continue
 		}
 
@@ -125,6 +130,7 @@ func (a *App) Run() error {
 			}
 			fmt.Fprintf(os.Stderr, "%serror:%s %v\n", colorRed, colorReset, derr)
 		}
+		fmt.Println()
 	}
 }
 
@@ -133,12 +139,12 @@ func asciiMode() bool {
 	return os.Getenv("MIMIR_ASCII") != "" || os.Getenv("NO_COLOR") != ""
 }
 
-// colorize wraps s unless NO_COLOR is set.
+// colorize wraps s in the given ANSI color (if not empty) and appends a reset.
 func colorize(s, color string) string {
-	if os.Getenv("NO_COLOR") != "" {
+	if color == "" || os.Getenv("NO_COLOR") != "" {
 		return s
 	}
-	return color + s + colorReset
+	return color + s + "\033[0m"
 }
 
 // user_Current returns the current OS username.
@@ -150,46 +156,78 @@ func user_Current() (string, error) {
 	return u.Username, nil
 }
 
-// contextLine is the Starship-style segment line printed above the input marker.
+// contextLine renders the bracketed status line (without the prompt marker).
 func (a *App) contextLine() string {
 	u := "user"
 	if name, err := user_Current(); err == nil && name != "" {
 		u = name
 	}
-	ascii := asciiMode()
-	seg := func(icon, text, color string) string {
-		if ascii {
-			return text
-		}
-		return colorize(icon+" "+text, color)
+	t := a.Theme
+	if t.Name == "" {
+		t = theme.DefaultTheme()
 	}
 
-	parts := []string{
-		seg("", u, colorGreen),
-		seg("", "mimir", colorCyan),
-	}
-	if c := a.Cases.Current(); c != nil {
-		parts = append(parts, seg("", c.Name, colorYellow))
-		status := "open"
-		scol := colorGreen
-		if c.Status != "open" {
-			status, scol = "closed", colorDim
+	userCol := theme.ResolveColor(t.Colors.User)
+	brandCol := theme.ResolveColor(t.Colors.Brand)
+	caseCol := theme.ResolveColor(t.Colors.Case)
+	statusOKCol := theme.ResolveColor(t.Colors.StatusOK)
+	statusErrCol := theme.ResolveColor(t.Colors.StatusErr)
+
+	var parts []string
+	for _, seg := range t.Segments {
+		switch seg.Type {
+		case "user":
+			parts = append(parts, colorize(fmt.Sprintf("[%s]", u), userCol))
+		case "brand":
+			text := seg.Text
+			if text == "" {
+				text = "Mimir"
+			}
+			parts = append(parts, colorize(" "+text, brandCol))
+		case "case":
+			if c := a.Cases.Current(); c != nil {
+				parts = append(parts, colorize(fmt.Sprintf(" [%s]", c.Name), caseCol))
+			}
+		case "status":
+			if c := a.Cases.Current(); c != nil {
+				status := "open"
+				scol := statusOKCol
+				if c.Status != "open" {
+					status, scol = "closed", statusErrCol
+				}
+				parts = append(parts, colorize(fmt.Sprintf(" [%s]", status), scol))
+			}
+		case "custom":
+			parts = append(parts, colorize(seg.Text, string(seg.Color)))
 		}
-		parts = append(parts, seg("", status, scol))
 	}
-	sep := "  "
-	if ascii {
-		sep = " · "
+
+	sep := t.Layout.Separator
+	if sep == "" {
+		sep = " "
 	}
 	return strings.Join(parts, sep)
 }
 
-func (a *App) buildPrompt() string {
-	if asciiMode() {
-		return "|> "
+// promptMarker returns just the input prompt marker (e.g. "❯ ").
+// IMPORTANT: this must be a single line — readline treats "\n" in prompts
+// as multi-line prompt data and re-renders it unpredictably (duplicate
+// status lines, cursor corruption). The status line is printed separately
+// via fmt.Println(contextLine()) in the REPL loop.
+func (a *App) promptMarker() string {
+	t := a.Theme
+	marker := t.Layout.Marker
+	if marker == "" {
+		marker = "❯"
 	}
-	return colorize("❯", colorGreen) + " "
+
+	if asciiMode() || t.Name == "minimal" || t.Name == "no-color" {
+		return "> "
+	}
+	return colorize(marker, theme.ResolveColor(t.Colors.Brand)) + " "
 }
+
+
 
 func (a *App) dispatch(line string) error {
 	parts := splitArgs(line)
@@ -237,6 +275,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdExport(args)
 	case "import":
 		return a.cmdImport(args)
+	case "theme":
+		return a.cmdTheme(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -261,6 +301,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %ssearch%s     find cases matching a query across all cases\n", colorGreen, colorReset)
 	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json]\n", colorGreen, colorReset)
 	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
+	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -861,6 +902,44 @@ func (a *App) cmdImport(args []string) error {
 		return err
 	}
 	fmt.Printf("imported case %s%s%s\n", colorGreen, name, colorReset)
+	return nil
+}
+
+func (a *App) cmdTheme(args []string) error {
+	if len(args) == 0 {
+		return a.themeList()
+	}
+	switch args[0] {
+	case "set":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: theme set <name>")
+		}
+		t := theme.BuiltinTheme(args[1])
+		a.Theme = t
+		fmt.Printf("theme set to %s%s%s\n", colorGreen, t.Name, colorReset)
+		return nil
+	case "save":
+		path := a.Config.ConfigPath()
+		if len(args) >= 2 {
+			path = args[1]
+		}
+		return theme.Save(a.Theme, path)
+	default:
+		return fmt.Errorf("usage: theme [list|set <name>|save [path]]")
+	}
+}
+
+func (a *App) themeList() error {
+	current := a.Theme.Name
+	fmt.Printf("  %sthemes%s\n", colorGreen, colorReset)
+	for _, t := range theme.BuiltinThemes() {
+		marker := "  "
+		if t.Name == current {
+			marker = colorGreen + "▶ " + colorReset
+		}
+		fmt.Printf("  %s%s%s  %s\n", marker, t.Name, colorReset, t.Description)
+	}
+	fmt.Printf("\nUse: theme set <name>\n")
 	return nil
 }
 

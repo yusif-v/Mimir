@@ -70,3 +70,64 @@ func TestRenderDegradesWhenWidthTooSmall(t *testing.T) {
 		t.Fatalf("content missing after degradation:\n%s", out)
 	}
 }
+
+func TestRenderDoubleWidthCells(t *testing.T) {
+	// Status-icon glyphs (●, ○) are double-width — padding must use display
+	// width, not byte length, or the box borders go ragged.
+	tbl := Table{
+		Headers: []string{"CASE", "STATUS"},
+		Rows: [][]string{
+			{"incident-42", "● open"},
+			{"malware-7", "○ closed"},
+		},
+		Align: []Align{AlignLeft, AlignLeft},
+	}
+	var b bytes.Buffer
+	tbl.Render(&b, 200, false)
+	out := b.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	// Collect the column-separator position from the header row (line index 1).
+	sepPos := -1
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "│") {
+			continue
+		}
+		plain := stripANSI(line)
+		start := strings.Index(plain, "│")
+		end := strings.LastIndex(plain, "│")
+		if start < 0 || end <= start {
+			continue
+		}
+		inner := plain[start+1 : end]
+		sep := strings.Index(inner, "│")
+		if sep < 0 {
+			continue
+		}
+		if sepPos == -1 {
+			sepPos = sep
+		} else if sep != sepPos {
+			t.Fatalf("column separator misaligned: row has %d, first row had %d\nfull output:\n%s", sep, sepPos, out)
+		}
+	}
+	if sepPos < 0 {
+		t.Fatal("could not find any data rows in output")
+	}
+}
+
+// stripANSI removes ANSI escape sequences from s.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
