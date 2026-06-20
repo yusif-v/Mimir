@@ -36,3 +36,6 @@ docs/
 *-api-key*
 *-token*
 credentials.json
+
+# Test artifacts
+*.jsonl
