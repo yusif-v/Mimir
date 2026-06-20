@@ -2,6 +2,7 @@
 package shell
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/yusif-v/mimir/internal/ai"
 	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/casearchive"
 	"github.com/yusif-v/mimir/internal/cases"
@@ -55,6 +57,7 @@ type App struct {
 	Runner *tools.Runner
 	Output *tools.OutputCapture
 	Theme  theme.Theme
+	AI     *ai.Shell
 	rl     *readline.Instance
 }
 
@@ -71,6 +74,16 @@ func NewApp(cfg *config.Config) *App {
 		fmt.Fprintf(os.Stderr, "warning: tool discovery failed: %v\n", err)
 	}
 
+	// Initialize AI shell
+	var aiShell *ai.Shell
+	if cfgErr := cfg.AI.Validate(); cfgErr == nil {
+		if s, err := ai.NewShell(cfg.AI); err == nil {
+			aiShell = s
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: AI init failed: %v\n", err)
+		}
+	}
+
 	return &App{
 		Config: cfg,
 		Events: bus,
@@ -79,6 +92,7 @@ func NewApp(cfg *config.Config) *App {
 		Runner: toolRunner,
 		Output: outputCapture,
 		Theme:  theme.DefaultTheme(),
+		AI:     aiShell,
 	}
 }
 
@@ -275,6 +289,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdExport(args)
 	case "import":
 		return a.cmdImport(args)
+	case "ai":
+		return a.cmdAI(args)
 	case "theme":
 		return a.cmdTheme(args)
 	default:
@@ -302,6 +318,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json]\n", colorGreen, colorReset)
 	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
 	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
+	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -941,6 +958,119 @@ func (a *App) themeList() error {
 	}
 	fmt.Printf("\nUse: theme set <name>\n")
 	return nil
+}
+
+func (a *App) cmdAI(args []string) error {
+	if a.AI == nil {
+		return fmt.Errorf("AI not configured. Set ai.provider and ai.model in config.yaml or via env vars")
+	}
+
+	if len(args) == 0 {
+		return a.aiHelp()
+	}
+
+	logAI := func(query, response string) {
+		if c := a.Cases.Current(); c != nil {
+			c.AppendEvent(cases.TimelineEvent{
+				Type:      "ai_query",
+				Timestamp: time.Now().Format(time.RFC3339),
+				Payload:   map[string]any{"query": query, "provider": a.AI.ProviderName()},
+			})
+			if response != "" {
+				c.AppendEvent(cases.TimelineEvent{
+					Type:      "ai_response",
+					Timestamp: time.Now().Format(time.RFC3339),
+					Payload:   map[string]any{"response": response},
+				})
+			}
+		}
+	}
+
+	switch args[0] {
+	case "ask":
+		question := strings.Join(args[1:], " ")
+		if question == "" {
+			return fmt.Errorf("usage: ai ask <question>")
+		}
+		messages := a.buildAIMessages()
+		logAI(question, "")
+		fmt.Printf("%s[AI %s]%s\n", colorCyan, a.AI.ProviderName(), colorReset)
+		return a.AI.Ask(context.Background(), question, messages)
+
+	case "analyze":
+		messages := a.buildAIMessages()
+		if messages == nil {
+			return fmt.Errorf("no case data to analyze. Open a case first")
+		}
+		logAI("analyze case", "")
+		fmt.Printf("%s[AI %s]%s\n", colorCyan, a.AI.ProviderName(), colorReset)
+		return a.AI.Analyze(context.Background(), messages)
+
+	case "suggest":
+		messages := a.buildAIMessages()
+		if messages == nil {
+			return fmt.Errorf("no case data for suggestions. Open a case first")
+		}
+		logAI("suggest next steps", "")
+		fmt.Printf("%s[AI %s]%s\n", colorCyan, a.AI.ProviderName(), colorReset)
+		return a.AI.Suggest(context.Background(), messages)
+
+	case "explain":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ai explain <text>")
+		}
+		output := strings.Join(args[1:], " ")
+		logAI("explain: "+output[:min(80, len(output))], "")
+		return a.AI.Explain(context.Background(), output, nil)
+
+	case "config":
+		return a.aiConfig(args[1:])
+
+	default:
+		return a.aiHelp()
+	}
+}
+
+func (a *App) buildAIMessages() []ai.Message {
+	c := a.Cases.Current()
+	if c == nil {
+		return nil
+	}
+	return ai.BuildContext(c, ai.DefaultContextOptions())
+}
+
+func (a *App) aiHelp() error {
+	fmt.Printf("  %sai ask <q>%s       ask a question (with case context)\n", colorGreen, colorReset)
+	fmt.Printf("  %sai analyze%s       summarize current case findings\n", colorGreen, colorReset)
+	fmt.Printf("  %sai suggest%s       recommend next investigation steps\n", colorGreen, colorReset)
+	fmt.Printf("  %sai explain <t>%s   explain tool output or concept\n", colorGreen, colorReset)
+	fmt.Printf("  %sai config%s        show AI configuration\n", colorGreen, colorReset)
+	fmt.Printf("\nProvider: %s%s%s\n", colorCyan, a.AI.ProviderName(), colorReset)
+	return nil
+}
+
+func (a *App) aiConfig(args []string) error {
+	cfg := a.Config.AI
+	if len(args) == 0 {
+		redacted := cfg.Redact()
+		fmt.Printf("  provider:    %s%s%s\n", colorCyan, redacted.Provider, colorReset)
+		fmt.Printf("  model:       %s%s%s\n", colorCyan, redacted.Model, colorReset)
+		fmt.Printf("  base_url:    %s%s%s\n", colorCyan, redacted.BaseURL, colorReset)
+		fmt.Printf("  api_key:     %s%s%s\n", colorCyan, redacted.APIKey, colorReset)
+		fmt.Printf("  max_tokens:  %s%d%s\n", colorCyan, cfg.MaxTokens, colorReset)
+		fmt.Printf("  temperature: %s%.2f%s\n", colorCyan, cfg.Temperature, colorReset)
+		fmt.Printf("  ctx_window:  %s%d%s\n", colorCyan, cfg.ContextWindow, colorReset)
+		fmt.Printf("  timeout:     %s%ds%s\n", colorCyan, cfg.Timeout, colorReset)
+		return nil
+	}
+	return fmt.Errorf("usage: ai config (read-only, edit config.yaml to change)")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (a *App) cmdShell(line string) error {

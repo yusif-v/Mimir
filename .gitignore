@@ -21,9 +21,18 @@ Thumbs.db
 *.out
 
 # Mimir runtime
-Investigations/
+investigations/
 .mhistory
+*.log
+.env
+.env.*
+!.env.example
 
 # Internal docs (not user-facing)
 PLAN.md
 docs/
+
+# AI provider keys or tokens
+*-api-key*
+*-token*
+credentials.json
