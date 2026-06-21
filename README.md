@@ -68,7 +68,7 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 
 Mimir runs three kinds of tools, all through `run <tool>`:
 
-- **Built-in** — native Go, always available, no dependencies: `hash` (MD5/SHA1/SHA256), `strings`, `file`, `hexdump`, `entropy`, `decode`
+- **Built-in** — native Go, always available, no dependencies: `hash` (MD5/SHA1/SHA256), `strings`, `file`, `hexdump`, `entropy`, `decode`, `peinfo`, `elfinfo`, `rtfscan`, `lnkparse`, `mimetype`
 - **Docker** — sandboxed tools from the embedded catalog (e.g. `volatility`, `yara`, `bulk_extractor`); `install <name>` adds the template, `build <name>` builds the image
 - **Local** — tools found on `PATH` via a `mimir.toml` template
 
@@ -84,6 +84,11 @@ When a case is open, tool output is saved under the case's `output/` directory a
 | `hexdump` | `run hexdump <file>` — canonical hex + ASCII dump |
 | `entropy` | `run entropy <file>` — Shannon entropy (flags packed/encrypted regions) |
 | `decode` | `run decode [--base64\|--hex\|--url] <input>` — decode encoded data (auto-detect if no flag) |
+| `peinfo` | `run peinfo <file>` — PE headers, imports, sections, compile timestamp |
+| `elfinfo` | `run elfinfo <file>` — ELF headers, sections, symbols |
+| `rtfscan` | `run rtfscan <file>` — detect RTF exploit objects (objdata, objclass, DDE, hex blobs) |
+| `lnkparse` | `run lnkparse <file>` — parse Windows LNK shortcut files |
+| `mimetype` | `run mimetype <file>` — deep MIME type detection with format-specific inspection |
 
 ## Evidence & IOCs
 

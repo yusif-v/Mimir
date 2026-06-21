@@ -5,9 +5,14 @@ All notable changes to Mimir will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-06-22
 
 ### Added
+- Built-in tool: **peinfo** — parse PE headers, imports, sections, compile timestamp (pure Go, `debug/pe`)
+- Built-in tool: **elfinfo** — parse ELF headers, sections, symbols (pure Go, `debug/elf`)
+- Built-in tool: **rtfscan** — detect RTF exploit objects (objdata, objclass, equation, DDE, hex blobs)
+- Built-in tool: **lnkparse** — parse Windows LNK shortcut files (targets, paths, timestamps, flags)
+- Built-in tool: **mimetype** — deep MIME type detection with format-specific inspection (PDF, PE, ELF, ZIP, OLE2, PNG, JPEG)
 - Tool template: **oletools** — Office document macro and OLE analysis (`olevba`, `oleid`, `oleobj`, etc.) via Docker
 - Tool template: **tshark** — CLI packet capture analysis and protocol dissection via Docker
 
