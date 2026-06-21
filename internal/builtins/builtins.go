@@ -391,7 +391,7 @@ func peinfoTool(args []string) (string, error) {
 	fmt.Fprintf(&sb, "  Machine:              0x%04x (%s)\n", pef.FileHeader.Machine, peMachine(pef.FileHeader.Machine))
 	fmt.Fprintf(&sb, "  Sections:             %d\n", pef.FileHeader.NumberOfSections)
 	fmt.Fprintf(&sb, "  Timestamp:            %s\n", peTimestamp(pef.FileHeader.TimeDateStamp))
-	fmt.Fprintf(&sb, "  Characteristics:      0x%04x\n", peFileChars(pef.FileHeader.Characteristics))
+	fmt.Fprintf(&sb, "  Characteristics:      %s\n", peFileChars(pef.FileHeader.Characteristics))
 
 	// Optional header
 	if pef.OptionalHeader != nil {
