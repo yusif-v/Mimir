@@ -1094,12 +1094,22 @@ func (a *App) cmdShell(line string) error {
 
 // buildImage builds a Docker image from a template directory by shelling out
 // to the docker CLI. Isolated so the build backend can change without touching
-// callers.
+// callers. Build output is streamed to the operator so a failing Dockerfile
+// surfaces its own error, the same way an interactive `docker build` would.
 func buildImage(templateDir, imageTag string) error {
-	cmd := exec.Command("docker", "build", "-t", imageTag, templateDir)
+	fmt.Fprintf(os.Stderr, "Building image %s from %s...\n", imageTag, templateDir)
+	cmd := exec.Command("docker", "build", "--no-cache", "-t", imageTag, templateDir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			// docker already streamed the build error to stderr; don't rewrap it.
+			return fmt.Errorf("docker build failed (exit %d)", exitErr.ExitCode())
+		}
+		return fmt.Errorf("running docker build: %w", err)
+	}
+	return nil
 }
 
 func (a *App) cmdInstall(args []string) error {

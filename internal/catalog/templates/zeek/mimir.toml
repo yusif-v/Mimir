@@ -1,0 +1,19 @@
+[tool]
+name = "zeek"
+description = "Network traffic analysis and connection logging"
+category = "network"
+tags = ["pcap", "network", "traffic", "ids", "connections"]
+
+[docker]
+image = "dfir-zeek:latest"
+workdir = "/output"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/output"
+mode = "rw"

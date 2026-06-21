@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `build`/`install` now actually build the Docker image: `buildImage` shells out to `docker build --no-cache` and streams output, instead of printing the command and returning "build not implemented"
+- Volatility Dockerfile no longer fails to build: dropped the `[full]` extra (which pulled in `leechcorepyc`, an FPGA/live-acquisition driver needing libusb + a C toolchain) in favor of `pip install volatility3`, which installs only the required deps as prebuilt wheels
+- Corrected the Volatility image entrypoint to the `vol` console script
+
 ## [0.4.0] - 2026-06-19
 
 ### Added

@@ -1,14 +1,11 @@
 [tool]
-name = "yara"
-description = "Pattern matching engine for files and memory"
+name = "capa"
+description = "MITRE ATT&CK capability mapper for binaries"
 category = "malware"
-tags = ["pattern", "scan", "rules", "signature"]
-
-[local]
-cmd = "yara"
+tags = ["binary", "pe", "elf", "mitre", "att&ck", "analysis"]
 
 [docker]
-image = "dfir-yara:latest"
+image = "dfir-capa:latest"
 workdir = "/output"
 
 [[docker.volumes]]

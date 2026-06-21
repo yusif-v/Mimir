@@ -7,13 +7,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     python3 python3-pip python3-venv \
-    git build-essential libffi-dev libssl-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/volatilityfoundation/volatility3.git /opt/volatility3
-WORKDIR /opt/volatility3
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -e ".[full]"
+# Install Volatility 3 from PyPI. The base package pulls only its required
+# dependencies (pefile, yara-python, capstone, pycryptodome) as prebuilt
+# wheels — no compiler needed. We deliberately avoid the [full] extra, which
+# drags in leechcorepyc: an FPGA / live-memory-acquisition driver that needs
+# libusb + a C toolchain and is useless for analyzing memory-dump files.
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir volatility3
 
 ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /output
-ENTRYPOINT ["python3", "/opt/volatility3/vol.py"]
+ENTRYPOINT ["vol"]

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +53,10 @@ type ToolTemplate struct {
 		Category    string   `toml:"category"`
 		Tags        []string `toml:"tags"`
 	} `toml:"tool"`
+	Local struct {
+		Cmd     string `toml:"cmd"`
+		Install string `toml:"install"`
+	} `toml:"local"`
 	Docker struct {
 		Image      string `toml:"image"`
 		Entrypoint string `toml:"entrypoint"`
@@ -105,6 +110,87 @@ func (r *Registry) List(category string) []*Definition {
 	return result
 }
 
+// LocalBinDir returns the directory where Mimir stores local tool binaries.
+func (r *Runner) LocalBinDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".mimir", "bin")
+}
+
+// localBinPath returns the full path to a local tool's binary, or "" if not found.
+func (r *Runner) localBinPath(tool *Definition) string {
+	binDir := r.LocalBinDir()
+	// Check for the binary name (LocalCmd may be just the name, or a full path).
+	binName := tool.LocalCmd
+	if idx := strings.LastIndex(binName, "/"); idx >= 0 {
+		binName = binName[idx+1:]
+	}
+	candidate := filepath.Join(binDir, binName)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	// Also check if the command is on PATH.
+	if path, err := exec.LookPath(tool.LocalCmd); err == nil {
+		return path
+	}
+	return ""
+}
+
+// ensureLocalTool attempts to install a tool locally to ~/.mimir/bin.
+// It only runs if the tool has a LocalInstall block in its definition.
+func (r *Runner) ensureLocalTool(tool *Definition) error {
+	binDir := r.LocalBinDir()
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return fmt.Errorf("create bin dir: %w", err)
+	}
+	// Check if already installed.
+	if r.localBinPath(tool) != "" {
+		return nil
+	}
+	// If the tool has a LocalCmd that's a URL, download it.
+	if strings.HasPrefix(tool.LocalCmd, "http://") || strings.HasPrefix(tool.LocalCmd, "https://") {
+		binName := tool.Name
+		dest := filepath.Join(binDir, binName)
+		return downloadFile(tool.LocalCmd, dest)
+	}
+	// If LocalCmd is a package manager hint, try installing.
+	if hint, ok := tool.Metadata["install"]; ok {
+		return r.installViaPackageManager(hint, tool)
+	}
+	return fmt.Errorf("cannot install '%s' locally — provide a download URL in local_cmd", tool.Name)
+}
+
+// downloadFile downloads a URL to a local file.
+func downloadFile(url, dest string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
+// installViaPackageManager tries to install a tool via apt/brew.
+func (r *Runner) installViaPackageManager(hint string, tool *Definition) error {
+	var cmd *exec.Cmd
+	switch hint {
+	case "apt":
+		cmd = exec.Command("sudo", "apt-get", "install", "-y", tool.Name)
+	case "brew":
+		cmd = exec.Command("brew", "install", tool.Name)
+	default:
+		return fmt.Errorf("unsupported install hint: %s", hint)
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // DiscoverFromPath scans a directory for tool templates (mimir.toml files).
 func (r *Registry) DiscoverFromPath(path string) error {
 	entries, err := os.ReadDir(path)
@@ -147,11 +233,12 @@ func ParseTemplate(data []byte, path string) (*Definition, error) {
 		Description:  tmpl.Tool.Description,
 		Category:     tmpl.Tool.Category,
 		DockerImage:  tmpl.Docker.Image,
+		LocalCmd:     tmpl.Local.Cmd,
 		Tags:         tmpl.Tool.Tags,
 		TemplatePath: path,
 		Entrypoint:   tmpl.Docker.Entrypoint,
 		WorkDir:      tmpl.Docker.WorkDir,
-		Metadata:     map[string]string{},
+		Metadata:     map[string]string{"install": tmpl.Local.Install},
 	}
 
 	for _, v := range tmpl.Docker.Volumes {
@@ -208,6 +295,8 @@ func (r *Runner) DockerReachable() bool {
 }
 
 // Run executes a tool with the given arguments.
+// Prefer local execution when available (no Docker needed).
+// Falls back to Docker when local isn't available or tool is Docker-only.
 func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 	r.events.Emit(events.ToolStarted, map[string]any{
 		"tool": tool.Name,
@@ -220,6 +309,20 @@ func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 		StartedAt: time.Now(),
 	}
 
+	// Prefer local execution if the tool has a local command.
+	if tool.LocalCmd != "" {
+		found := r.localBinPath(tool) != ""
+		if found {
+			return r.runLocal(tool.LocalCmd, args, result)
+		}
+		// Try to auto-install the local tool.
+		if err := r.ensureLocalTool(tool); err == nil {
+			return r.runLocal(tool.LocalCmd, args, result)
+		}
+		// Local install failed — fall through to Docker.
+	}
+
+	// Docker path.
 	if tool.RunsInDocker() {
 		if !r.DockerReachable() {
 			result.Error = fmt.Errorf("docker is not available — is Docker running?")
@@ -231,10 +334,6 @@ func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 			return result
 		}
 		return r.runDocker(tool, args, casePath, result)
-	}
-
-	if tool.LocalCmd != "" {
-		return r.runLocal(tool.LocalCmd, args, result)
 	}
 
 	result.Error = fmt.Errorf("no execution method for tool '%s'", tool.Name)
