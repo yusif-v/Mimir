@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Tool template: **oletools** — Office document macro and OLE analysis (`olevba`, `oleid`, `oleobj`, etc.) via Docker
+- Tool template: **tshark** — CLI packet capture analysis and protocol dissection via Docker
+
 ### Fixed
 - `build`/`install` now actually build the Docker image: `buildImage` shells out to `docker build --no-cache` and streams output, instead of printing the command and returning "build not implemented"
 - Volatility Dockerfile no longer fails to build: dropped the `[full]` extra (which pulled in `leechcorepyc`, an FPGA/live-acquisition driver needing libusb + a C toolchain) in favor of `pip install volatility3`, which installs only the required deps as prebuilt wheels
 - Corrected the Volatility image entrypoint to the `vol` console script
+- Removed duplicate `tools/volatility/Dockerfile` (old location superseded by `internal/catalog/templates/`)
 
 ## [0.4.0] - 2026-06-19
 

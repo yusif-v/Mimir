@@ -1,0 +1,19 @@
+[tool]
+name = "tshark"
+description = "CLI packet capture analysis and protocol dissection"
+category = "network"
+tags = ["pcap", "network", "traffic", "protocol", "dissection"]
+
+[docker]
+image = "dfir-tshark:latest"
+workdir = "/output"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/output"
+mode = "rw"
