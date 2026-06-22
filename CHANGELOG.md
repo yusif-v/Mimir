@@ -5,14 +5,14 @@ All notable changes to Mimir will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2026-06-22
+## [Unreleased]
 
 ### Added
-- Plugin system: manifest-based plugin discovery, `plugin` shell command (list, run, info), plugin hooks and PluginAPI
-- Case templates: embedded YAML templates, `case -t <template>` flag, `case templates` command to list available templates
+- Plugin system: manifest-based plugin discovery, `plugin` shell command (list, run, info)
+- Case templates: embedded YAML templates, `case -t <template>` flag, `case templates` command
 - Evidence deduplication: SHA-256 check on `evidence add` prevents duplicate entries
-- Timeline export: `timeline export [path] [--format csv|json]` exports the case timeline to CSV or JSON
-- Tool output search: `search --in-output <query>` and `grep <query>` search within captured tool output
+- Timeline export: `timeline export [path] [--format csv|json]`
+- Tool output search: `search --in-output <query>` and `grep <query>`
 
 ## [0.5.0] - 2026-06-22
 
