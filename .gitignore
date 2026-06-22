@@ -39,3 +39,4 @@ credentials.json
 
 # Test artifacts
 *.jsonl
+mimir-test
