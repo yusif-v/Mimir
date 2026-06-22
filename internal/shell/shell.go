@@ -311,7 +311,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %shelp%s       show this help\n", colorGreen, colorReset)
 	fmt.Printf("  %sexit%s       exit Mimir\n", colorGreen, colorReset)
 	fmt.Printf("  %sstatus%s     show current case status\n", colorGreen, colorReset)
-	fmt.Printf("  %scase%s       manage cases (-n new, -o open, -c close)\n", colorGreen, colorReset)
+	fmt.Printf("  %scase%s       manage cases (-n new, -o open, -c close, templates)\n", colorGreen, colorReset)
 	fmt.Printf("  %scases%s      list all cases\n", colorGreen, colorReset)
 	fmt.Printf("  %stools%s      list registered tools\n", colorGreen, colorReset)
 	fmt.Printf("  %srun%s        run a tool: run <name> [args...]\n", colorGreen, colorReset)
@@ -347,7 +347,7 @@ func (a *App) cmdStatus(args []string) error {
 
 func (a *App) cmdCase(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: case -n <name> | case -o <name> | case -c")
+		return fmt.Errorf("usage: case -n <name> [-t <template>] | case -o <name> | case -c | case templates")
 	}
 
 	action := args[0]
@@ -355,9 +355,17 @@ func (a *App) cmdCase(args []string) error {
 	switch action {
 	case "-n":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: case -n <name>")
+			return fmt.Errorf("usage: case -n <name> [-t <template>]")
 		}
-		c, err := a.Cases.Create(args[1])
+		name := args[1]
+		templateName := "default"
+		for i := 2; i < len(args); i++ {
+			if args[i] == "-t" && i+1 < len(args) {
+				templateName = args[i+1]
+				i++
+			}
+		}
+		c, err := a.Cases.CreateWithTemplate(name, templateName)
 		if err != nil {
 			return err
 		}
@@ -376,6 +384,25 @@ func (a *App) cmdCase(args []string) error {
 			return err
 		}
 		fmt.Println("Case closed.")
+	case "templates":
+		names, err := cases.ListTemplates()
+		if err != nil {
+			return fmt.Errorf("list templates: %w", err)
+		}
+		if len(names) == 0 {
+			fmt.Println("No templates available.")
+			return nil
+		}
+		fmt.Println("Available case templates:")
+		for i := range names {
+			name := names[i]
+			tmpl, err := cases.LoadTemplate(name[:len(name)-5]) // strip .yaml
+			if err != nil {
+				fmt.Printf("  %s (error loading: %v)\n", name, err)
+				continue
+			}
+			fmt.Printf("  %-25s %s\n", tmpl.Name, tmpl.Description)
+		}
 	default:
 		return fmt.Errorf("unknown action: %s", action)
 	}

@@ -44,6 +44,22 @@ func (m *Manager) Create(name string) (*Case, error) {
 	return c, nil
 }
 
+// CreateWithTemplate creates a new case using the named template.
+func (m *Manager) CreateWithTemplate(name, templateName string) (*Case, error) {
+	c, err := m.Create(name)
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := LoadTemplate(templateName)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.ApplyTemplate(tmpl); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // Open opens an existing case and sets it as current.
 func (m *Manager) Open(name string) (*Case, error) {
 	path := filepath.Join(m.storage.basePath, name)

@@ -1,0 +1,20 @@
+name: incident-response
+description: Standard incident response case
+directories:
+  - evidence/malware
+  - evidence/memory
+  - evidence/disk
+  - evidence/network
+  - output/volatility
+  - output/yara
+  - output/capa
+  - notes
+default_tags:
+  - ir
+initial_notes:
+  - "Case created via incident response template"
+recommended_tools:
+  - volatility
+  - yara
+  - capa
+  - peinfo
