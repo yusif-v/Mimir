@@ -34,6 +34,7 @@ func LoadManifest(dir string) (*Plugin, error) {
 		Name:        m.Name,
 		Description: m.Description,
 		Version:     m.Version,
+		Entrypoint:  m.Entrypoint,
 		Enabled:     true,
 	}, nil
 }

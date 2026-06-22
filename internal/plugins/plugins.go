@@ -109,5 +109,6 @@ type Plugin struct {
 	Name        string
 	Description string
 	Version     string
+	Entrypoint  string
 	Enabled     bool
 }

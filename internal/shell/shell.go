@@ -24,6 +24,7 @@ import (
 	"github.com/yusif-v/mimir/internal/config"
 	"github.com/yusif-v/mimir/internal/events"
 	"github.com/yusif-v/mimir/internal/ioc"
+	"github.com/yusif-v/mimir/internal/plugins"
 	"github.com/yusif-v/mimir/internal/theme"
 	"github.com/yusif-v/mimir/internal/tools"
 	"github.com/yusif-v/mimir/internal/ui"
@@ -50,15 +51,16 @@ func banner() string {
 
 // App ties together all subsystems.
 type App struct {
-	Config *config.Config
-	Events *events.Bus
-	Cases  *cases.Manager
-	Tools  *tools.Registry
-	Runner *tools.Runner
-	Output *tools.OutputCapture
-	Theme  theme.Theme
-	AI     *ai.Shell
-	rl     *readline.Instance
+	Config  *config.Config
+	Events  *events.Bus
+	Cases   *cases.Manager
+	Tools   *tools.Registry
+	Runner  *tools.Runner
+	Output  *tools.OutputCapture
+	Plugins *plugins.Manager
+	Theme   theme.Theme
+	AI      *ai.Shell
+	rl      *readline.Instance
 }
 
 // NewApp creates a new shell app with all subsystems wired.
@@ -84,15 +86,20 @@ func NewApp(cfg *config.Config) *App {
 		}
 	}
 
+	// Initialize plugin manager
+	pluginManager := plugins.NewManager(bus)
+	pluginManager.Discover()
+
 	return &App{
-		Config: cfg,
-		Events: bus,
-		Cases:  caseManager,
-		Tools:  toolRegistry,
-		Runner: toolRunner,
-		Output: outputCapture,
-		Theme:  theme.DefaultTheme(),
-		AI:     aiShell,
+		Config:  cfg,
+		Events:  bus,
+		Cases:   caseManager,
+		Tools:   toolRegistry,
+		Runner:  toolRunner,
+		Output:  outputCapture,
+		Plugins: pluginManager,
+		Theme:   theme.DefaultTheme(),
+		AI:      aiShell,
 	}
 }
 
@@ -291,6 +298,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdImport(args)
 	case "ai":
 		return a.cmdAI(args)
+	case "plugin":
+		return a.cmdPlugin(args)
 	case "theme":
 		return a.cmdTheme(args)
 	default:
@@ -319,6 +328,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
 	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
 	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
+	fmt.Printf("  %splugin%s      manage plugins: list, run <name>, info <name>\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -1037,6 +1047,56 @@ func (a *App) buildAIMessages() []ai.Message {
 		return nil
 	}
 	return ai.BuildContext(c, ai.DefaultContextOptions())
+}
+
+func (a *App) cmdPlugin(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: plugin <list|run|info> [name]")
+	}
+	switch args[0] {
+	case "list":
+		names := a.Plugins.List()
+		if len(names) == 0 {
+			fmt.Println("No plugins discovered.")
+			return nil
+		}
+		for _, name := range names {
+			p, _ := a.Plugins.Get(name)
+			if p != nil {
+				fmt.Printf("  %-20s %s\n", p.Name, p.Description)
+			}
+		}
+	case "run":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: plugin run <name> [args...]")
+		}
+		p, ok := a.Plugins.Get(args[1])
+		if !ok {
+			return fmt.Errorf("plugin not found: %s", args[1])
+		}
+		binary := filepath.Join(a.Config.PluginsPath, p.Name, p.Entrypoint)
+		cmd := exec.Command(binary, args[2:]...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("plugin %s: %w", p.Name, err)
+		}
+	case "info":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: plugin info <name>")
+		}
+		p, ok := a.Plugins.Get(args[1])
+		if !ok {
+			return fmt.Errorf("plugin not found: %s", args[1])
+		}
+		fmt.Printf("  Name:        %s\n", p.Name)
+		fmt.Printf("  Description: %s\n", p.Description)
+		fmt.Printf("  Version:     %s\n", p.Version)
+		fmt.Printf("  Enabled:     %v\n", p.Enabled)
+	default:
+		return fmt.Errorf("unknown plugin action: %s", args[0])
+	}
+	return nil
 }
 
 func (a *App) aiHelp() error {
