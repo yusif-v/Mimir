@@ -5,15 +5,6 @@ All notable changes to Mimir will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - 2026-06-22
-
-### Added
-- Plugin system: manifest-based plugin discovery, `plugin` shell command (list, run, info), plugin hooks and PluginAPI
-- Case templates: embedded YAML templates, `case -t <template>` flag, `case templates` command to list available templates
-- Evidence deduplication: SHA-256 check on `evidence add` prevents duplicate entries
-- Timeline export: `timeline export [path] [--format csv|json]` exports the case timeline to CSV or JSON
-- Tool output search: `search --in-output <query>` and `grep <query>` search within captured tool output
-
 ## [0.5.0] - 2026-06-22
 
 ### Added
@@ -92,6 +83,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.0]: https://github.com/yusif-v/Mimir/releases/tag/v0.1.0
 [0.3.0]: https://github.com/yusif-v/Mimir/compare/v0.1.0...v0.3.0
 [0.4.0]: https://github.com/yusif-v/Mimir/compare/v0.3.0...v0.4.0
-[0.5.0]: https://github.com/yusif-v/Mimir/compare/v0.4.0...v0.5.0
-[0.6.0]: https://github.com/yusif-v/Mimir/compare/v0.5.0...v0.6.0
-[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.4.0...HEAD
