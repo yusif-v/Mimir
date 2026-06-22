@@ -320,7 +320,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
 	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify\n", colorGreen, colorReset)
-	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N)\n", colorGreen, colorReset)
+	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N, export [path] [--format csv|json])\n", colorGreen, colorReset)
 	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	fmt.Printf("  %ssearch%s     find cases matching a query across all cases\n", colorGreen, colorReset)
@@ -692,6 +692,25 @@ func (a *App) cmdTimeline(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
 		return fmt.Errorf("no case is open")
+	}
+
+	// Handle "timeline export" subcommand
+	if len(args) > 0 && args[0] == "export" {
+		format := "csv"
+		path := ""
+		for i := 1; i < len(args); i++ {
+			if args[i] == "--format" && i+1 < len(args) {
+				format = args[i+1]
+				i++
+			} else if path == "" {
+				path = args[i]
+			}
+		}
+		if err := c.ExportTimeline(format, path); err != nil {
+			return err
+		}
+		fmt.Printf("Timeline exported to %s\n", path)
+		return nil
 	}
 
 	evs := c.Timeline()
