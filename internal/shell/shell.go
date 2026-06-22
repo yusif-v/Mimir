@@ -292,6 +292,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdClear(args)
 	case "search":
 		return a.cmdSearch(args)
+	case "grep":
+		return a.cmdGrep(args)
 	case "export":
 		return a.cmdExport(args)
 	case "import":
@@ -323,7 +325,8 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N, export [path] [--format csv|json])\n", colorGreen, colorReset)
 	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
-	fmt.Printf("  %ssearch%s     find cases matching a query across all cases\n", colorGreen, colorReset)
+	fmt.Printf("  %ssearch%s     find cases matching a query across all cases; --in-output searches tool output\n", colorGreen, colorReset)
+	fmt.Printf("  %sgrep%s       search tool output (alias for search --in-output)\n", colorGreen, colorReset)
 	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json]\n", colorGreen, colorReset)
 	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
 	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
@@ -853,9 +856,39 @@ func (a *App) iocList() error {
 
 func (a *App) cmdSearch(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: search <query>")
+		return fmt.Errorf("usage: search <query> [--in-output]")
 	}
-	q := strings.ToLower(strings.Join(args, " "))
+
+	searchInOutput := false
+	var queryParts []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--in-output" {
+			searchInOutput = true
+			continue
+		}
+		queryParts = append(queryParts, args[i])
+	}
+	if len(queryParts) == 0 {
+		return fmt.Errorf("usage: search <query> [--in-output]")
+	}
+	q := strings.Join(queryParts, " ")
+
+	if searchInOutput {
+		c := a.Cases.Current()
+		if c == nil {
+			return fmt.Errorf("no case is open")
+		}
+		results := c.SearchOutput(q)
+		if len(results) == 0 {
+			fmt.Println("No matching output lines.")
+			return nil
+		}
+		for _, r := range results {
+			fmt.Printf("%s:%d: %s\n", r.File, r.Line, r.Content)
+		}
+		return nil
+	}
+
 	all, err := a.Cases.List()
 	if err != nil {
 		return fmt.Errorf("list cases: %w", err)
@@ -872,6 +905,13 @@ func (a *App) cmdSearch(args []string) error {
 	}
 	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	return nil
+}
+
+func (a *App) cmdGrep(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: grep <pattern> [--in-output]")
+	}
+	return a.cmdSearch(append(args, "--in-output"))
 }
 
 // caseMatches reports whether the lowercased query appears in the case and a

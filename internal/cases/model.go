@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -377,6 +378,43 @@ func containsStr(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// SearchResult is a single match from SearchOutput.
+type SearchResult struct {
+	File    string
+	Line    int
+	Content string
+}
+
+// SearchOutput walks the case output/ directory and returns every line whose
+// lowercased text contains the lowercased query.
+func (c *Case) SearchOutput(query string) []SearchResult {
+	var results []SearchResult
+	outputDir := filepath.Join(c.Path, "output")
+	q := strings.ToLower(query)
+	filepath.Walk(outputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if strings.Contains(strings.ToLower(line), q) {
+				rel, _ := filepath.Rel(c.Path, path)
+				results = append(results, SearchResult{
+					File:    rel,
+					Line:    i + 1,
+					Content: strings.TrimSpace(line),
+				})
+			}
+		}
+		return nil
+	})
+	return results
 }
 
 // Scaffold creates the case directory structure.
