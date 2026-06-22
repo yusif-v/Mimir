@@ -40,9 +40,10 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 |---------|-------------|
 | `help` | List commands |
 | `status` | Show the current case status |
-| `case -n <name>` | Create a new case |
+| `case -n <name> [-t <template>]` | Create a new case (optionally from a template) |
 | `case -o <name>` | Open a case |
 | `case -c` | Close the current case |
+| `case templates` | List available case templates |
 | `cases [--status open\|closed]` | List all cases (filter by status) |
 | `tools` | List installed, built-in, and installable tools with status |
 | `run <tool> [args...]` | Run a tool; output is captured to the open case |
@@ -50,7 +51,7 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 | `build <name>` | Build a Docker-backed tool's image |
 | `use <tool>` | Show details for a tool |
 | `note <text>` | Add a note to the open case |
-| `timeline [-n N] [--type <event-type>] [--grep <pattern>]` | Show the case timeline; filter by event type or text |
+| `timeline [-n N] [--type <event-type>] [--grep <pattern>] [export [path] [--format csv|json]]` | Show the case timeline; filter by event type or text; export to CSV or JSON |
 | `evidence add <path> [--tag a,b]` | Add a file to evidence (copies + SHA-256) |
 | `evidence tag <name> <tag>...` | Tag an evidence item |
 | `evidence verify [<name>]` | Verify evidence SHA-256 hashes |
@@ -58,9 +59,13 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 | `ioc <file>` | Extract IOCs (IPs, domains, hashes, URLs) from a file |
 | `ioc --from-output <name>` | Extract IOCs from a captured tool-output file |
 | `ioc` | List tracked IOCs for the current case |
-| `search <query>` | Search across all cases (names, notes, paths) |
+| `search <query> [--in-output]` | Search across all cases (names, notes, paths); `--in-output` searches within captured tool output |
+| `grep <query>` | Search within captured tool output (alias for `search --in-output`) |
 | `export [path] [--no-output] [--json]` | Export the current case to a tar.gz archive |
 | `import <archive>` | Import a case archive (auto-renames on conflict) |
+| `plugin list` | List discovered plugins |
+| `plugin run <name>` | Run a plugin |
+| `plugin info <name>` | Show plugin details |
 | `clear` | Clear the screen |
 | `exit` / `quit` | Exit Mimir |
 
