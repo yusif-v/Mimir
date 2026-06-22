@@ -2,6 +2,10 @@
 package plugins
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/yusif-v/mimir/internal/events"
 )
 
@@ -57,7 +61,27 @@ func NewManager(bus *events.Bus) *Manager {
 
 // Discover finds and loads plugins.
 func (m *Manager) Discover() {
-	// TODO: scan plugins directory, load .so files or execute plugin binaries
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	pluginsDir := filepath.Join(home, ".mimir", "plugins")
+	entries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(pluginsDir, entry.Name())
+		p, err := LoadManifest(dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: plugin %s: %v\n", entry.Name(), err)
+			continue
+		}
+		m.Register(p)
+	}
 }
 
 // Register adds a plugin.
