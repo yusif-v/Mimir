@@ -1314,6 +1314,12 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	if err != nil {
 		return fmt.Errorf("hash evidence: %w", err)
 	}
+
+	// Check for duplicate by hash before copying
+	if existing := c.FindEvidenceByHash(sum); existing != nil {
+		return fmt.Errorf("evidence already exists: %s (added %s)", existing.Name, existing.AddedAt)
+	}
+
 	if srcAbs != destAbs { // external source → copy into evidence/
 		if existing, statErr := os.Stat(dest); statErr == nil && existing.Mode().IsRegular() {
 			destSum, err := hashFile(dest)

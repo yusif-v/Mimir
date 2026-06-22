@@ -206,6 +206,17 @@ func (c *Case) AppendEvidence(rec EvidenceRecord) error {
 
 func (c *Case) Evidence() []Evidence { return c.evidence }
 
+// FindEvidenceByHash returns the evidence matching the given SHA-256 hash,
+// or nil if no evidence with that hash exists.
+func (c *Case) FindEvidenceByHash(sha256 string) *Evidence {
+	for i := range c.evidence {
+		if c.evidence[i].SHA256 == sha256 {
+			return &c.evidence[i]
+		}
+	}
+	return nil
+}
+
 func (c *Case) loadEvidence() error {
 	recs, err := readEvidenceRecords(filepath.Join(c.Path, "evidence.jsonl"))
 	if err != nil {
