@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Sandbox: Docker-based isolated execution environment for suspicious files
+  - `sandbox create/run/shell/logs/report/cp/destroy/list` commands
+  - Automated capture (filesystem, processes, network)
+  - Interactive shell access via `docker exec -it`
+  - Auto-destroy on case close with confirmation
+  - Pre-built images: ubuntu-22.04, windows (future)
+  - Isolated network (no network access)
 - Plugin system: manifest-based plugin discovery, `plugin` shell command (list, run, info)
 - Case templates: embedded YAML templates, `case -t <template>` flag, `case templates` command
 - Evidence deduplication: SHA-256 check on `evidence add` prevents duplicate entries

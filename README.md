@@ -66,8 +66,16 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 | `plugin list` | List discovered plugins |
 | `plugin run <name>` | Run a plugin |
 | `plugin info <name>` | Show plugin details |
-| `clear` | Clear the screen |
-| `exit` / `quit` | Exit Mimir |
+|| `sandbox create --os <os> [--file <path>]` | Create a sandbox |
+|| `sandbox run <id>` | Run target file in sandbox |
+|| `sandbox shell <id>` | Open interactive shell in sandbox |
+|| `sandbox logs <id>` | View captured events |
+|| `sandbox report <id>` | View analysis report |
+|| `sandbox cp <file> <id>` | Copy file into sandbox |
+|| `sandbox destroy <id>` | Destroy a sandbox |
+|| `sandbox list` | List active sandboxes |
+|| `clear` | Clear the screen |
+|| `exit` / `quit` | Exit Mimir |
 
 ## Tools
 
