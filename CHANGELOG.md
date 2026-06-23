@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Evidence deduplication: SHA-256 check on `evidence add` prevents duplicate entries
 - Timeline export: `timeline export [path] [--format csv|json]`
 - Tool output search: `search --in-output <query>` and `grep <query>`
+- **Sleuthkit**: Docker template for disk forensic analysis
+  - Full suite: fls, fsstat, icat, mmls, blkcalc, istat, blkls, blkcat, dcat, dstat, ffind, hfind, ifind, ils, img_stat, jcat, jls, sigfind, sstat
+  - `sleuthkit <tool> [args]` shell command
+- **Registry analysis**: RegRipper + python-registry Docker templates
+  - RegRipper: auto-detects hive type, supports all plugins, JSON output
+  - python-registry: scriptable registry parsing
+  - `regripper <hive> [-p plugin] [--json]` shell command
 
 ## [0.5.0] - 2026-06-22
 

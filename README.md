@@ -73,7 +73,9 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 || `sandbox report <id>` | View analysis report |
 || `sandbox cp <file> <id>` | Copy file into sandbox |
 || `sandbox destroy <id>` | Destroy a sandbox |
-|| `sandbox list` | List active sandboxes |
+||| `sandbox list` | List active sandboxes |
+||| `sleuthkit <tool> [args]` | Disk forensic analysis (fls, fsstat, icat, mmls, blkcalc, istat) |
+||| `regripper <hive> [-p plugin] [--json]` | Windows registry hive analysis |
 || `clear` | Clear the screen |
 || `exit` / `quit` | Exit Mimir |
 
