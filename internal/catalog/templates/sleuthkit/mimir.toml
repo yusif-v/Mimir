@@ -1,0 +1,19 @@
+[tool]
+name = "sleuthkit"
+description = "Disk forensic analysis with The Sleuth Kit (fls, fsstat, icat, mmls, blkcalc, istat)"
+category = "disk-forensics"
+tags = ["disk", "filesystem", "ntfs", "fat", "ext", "e01", "raw", "fls", "icat", "fsstat"]
+
+[docker]
+image = "dfir-sleuthkit:latest"
+workdir = "/output"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/output"
+mode = "rw"
