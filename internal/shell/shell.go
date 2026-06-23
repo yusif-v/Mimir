@@ -2,6 +2,7 @@
 package shell
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -25,6 +26,7 @@ import (
 	"github.com/yusif-v/mimir/internal/events"
 	"github.com/yusif-v/mimir/internal/ioc"
 	"github.com/yusif-v/mimir/internal/plugins"
+	"github.com/yusif-v/mimir/internal/sandbox"
 	"github.com/yusif-v/mimir/internal/theme"
 	"github.com/yusif-v/mimir/internal/tools"
 	"github.com/yusif-v/mimir/internal/ui"
@@ -61,6 +63,9 @@ type App struct {
 	Theme   theme.Theme
 	AI      *ai.Shell
 	rl      *readline.Instance
+
+	SandboxManager *sandbox.Manager
+	SandboxRuntime *sandbox.Runtime
 }
 
 // NewApp creates a new shell app with all subsystems wired.
@@ -90,16 +95,21 @@ func NewApp(cfg *config.Config) *App {
 	pluginManager := plugins.NewManager(bus)
 	pluginManager.Discover()
 
+	sandboxManager := sandbox.NewManager(filepath.Join(cfg.CasesPath, "sandboxes"))
+	sandboxRuntime := sandbox.NewRuntime()
+
 	return &App{
-		Config:  cfg,
-		Events:  bus,
-		Cases:   caseManager,
-		Tools:   toolRegistry,
-		Runner:  toolRunner,
-		Output:  outputCapture,
-		Plugins: pluginManager,
-		Theme:   theme.DefaultTheme(),
-		AI:      aiShell,
+		Config:         cfg,
+		Events:         bus,
+		Cases:          caseManager,
+		Tools:          toolRegistry,
+		Runner:         toolRunner,
+		Output:         outputCapture,
+		Plugins:        pluginManager,
+		Theme:          theme.DefaultTheme(),
+		AI:             aiShell,
+		SandboxManager: sandboxManager,
+		SandboxRuntime: sandboxRuntime,
 	}
 }
 
@@ -304,6 +314,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdPlugin(args)
 	case "theme":
 		return a.cmdTheme(args)
+	case "sandbox":
+		return a.cmdSandbox(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -332,6 +344,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
 	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
 	fmt.Printf("  %splugin%s      manage plugins: list, run <name>, info <name>\n", colorGreen, colorReset)
+	fmt.Printf("  %ssandbox%s     manage sandboxes: create, run, shell, logs, report, cp, destroy, list\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -1039,6 +1052,35 @@ func (a *App) cmdTheme(args []string) error {
 		return theme.Save(a.Theme, path)
 	default:
 		return fmt.Errorf("usage: theme [list|set <name>|save [path]]")
+	}
+}
+
+func (a *App) cmdSandbox(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: sandbox <create|run|shell|logs|report|cp|destroy|list> [args...]")
+	}
+	sh := sandbox.NewShell(a.SandboxManager, a.SandboxRuntime)
+	var buf bytes.Buffer
+	cmd := args[0]
+	switch cmd {
+	case "create":
+		return sh.Create(&buf, args[1:])
+	case "run":
+		return sh.Run(&buf, args[1:])
+	case "shell":
+		return sh.Shell(&buf, args[1:])
+	case "logs":
+		return sh.Logs(&buf, args[1:])
+	case "report":
+		return sh.Report(&buf, args[1:])
+	case "cp":
+		return sh.CopyFile(&buf, args[1:])
+	case "destroy":
+		return sh.Destroy(&buf, args[1:])
+	case "list":
+		return sh.List(&buf, args[1:])
+	default:
+		return fmt.Errorf("unknown sandbox command: %s", cmd)
 	}
 }
 
