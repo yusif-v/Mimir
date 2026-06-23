@@ -315,6 +315,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdTheme(args)
 	case "sandbox":
 		return a.cmdSandbox(args)
+	case "sleuthkit":
+		return a.cmdSleuthkit(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -344,6 +346,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
 	fmt.Printf("  %splugin%s      manage plugins: list, run <name>, info <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %ssandbox%s     manage sandboxes: create, run, shell, logs, report, cp, destroy, list\n", colorGreen, colorReset)
+	fmt.Printf("  %ssleuthkit%s     disk forensic analysis: fls, fsstat, icat, mmls, blkcalc, istat\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -1555,6 +1558,51 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func (a *App) cmdSleuthkit(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: sleuthkit <tool> [args...]\nTools: fls, fsstat, icat, mmls, blkcalc, istat, blkls, blkcat, dcat, dstat, ffind, hfind, ifind, ils, img_stat, jcat, jls, sigfind, sstat")
+	}
+	tool := args[0]
+	toolArgs := args[1:]
+
+	// Validate tool name
+	validTools := map[string]bool{
+		"fls": true, "fsstat": true, "icat": true, "mmls": true,
+		"blkcalc": true, "istat": true, "blkls": true, "blkcat": true,
+		"dcat": true, "dstat": true, "ffind": true, "hfind": true,
+		"ifind": true, "ils": true, "img_stat": true, "jcat": true,
+		"jls": true, "sigfind": true, "sstat": true,
+	}
+	if !validTools[tool] {
+		return fmt.Errorf("unknown sleuthkit tool: %s", tool)
+	}
+
+	// Build docker run command
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+
+	image := "dfir-sleuthkit:latest"
+	evidenceDir := filepath.Join(c.Path, "evidence")
+	outputDir := filepath.Join(c.Path, "output", "sleuthkit")
+	os.MkdirAll(outputDir, 0755)
+
+	dockerArgs := []string{
+		"run", "--rm",
+		"-v", fmt.Sprintf("%s:/evidence:ro", evidenceDir),
+		"-v", fmt.Sprintf("%s:/output:rw", outputDir),
+		image,
+		tool,
+	}
+	dockerArgs = append(dockerArgs, toolArgs...)
+
+	cmd := exec.Command("docker", dockerArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // splitArgs splits a command line string into arguments, respecting quotes.
