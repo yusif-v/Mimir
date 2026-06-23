@@ -57,6 +57,57 @@ func TestInstallUnknownErrors(t *testing.T) {
 	}
 }
 
+func TestSleuthkitTemplateDiscovered(t *testing.T) {
+	entries, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Name == "sleuthkit" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("sleuthkit not found in catalog")
+	}
+}
+
+func TestRegRipperTemplateDiscovered(t *testing.T) {
+	entries, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Name == "regripper" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("regripper not found in catalog")
+	}
+}
+
+func TestPythonRegistryTemplateDiscovered(t *testing.T) {
+	entries, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Name == "python-registry" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("python-registry not found in catalog")
+	}
+}
+
 func TestListReturnsIndependentCopy(t *testing.T) {
 	a, err := catalog.List()
 	if err != nil {
