@@ -1,0 +1,19 @@
+[tool]
+name = "regripper"
+description = "Windows registry hive analysis with RegRipper (auto-detects hive type)"
+category = "forensics"
+tags = ["windows", "registry", "hive", "sam", "system", "software", "ntuser", "usrclass"]
+
+[docker]
+image = "dfir-regripper:latest"
+workdir = "/output"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/output"
+mode = "rw"
