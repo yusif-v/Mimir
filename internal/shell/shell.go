@@ -317,6 +317,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdSandbox(args)
 	case "sleuthkit":
 		return a.cmdSleuthkit(args)
+	case "regripper":
+		return a.cmdRegRipper(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -347,6 +349,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %splugin%s      manage plugins: list, run <name>, info <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %ssandbox%s     manage sandboxes: create, run, shell, logs, report, cp, destroy, list\n", colorGreen, colorReset)
 	fmt.Printf("  %ssleuthkit%s     disk forensic analysis: fls, fsstat, icat, mmls, blkcalc, istat\n", colorGreen, colorReset)
+	fmt.Printf("  %sregripper%s    Windows registry hive analysis (auto-detect, -p plugin, --json)\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -1598,6 +1601,57 @@ func (a *App) cmdSleuthkit(args []string) error {
 		tool,
 	}
 	dockerArgs = append(dockerArgs, toolArgs...)
+
+	cmd := exec.Command("docker", dockerArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func (a *App) cmdRegRipper(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: regripper <hive-file> [-p <plugin>] [--json]")
+	}
+
+	hiveFile := args[0]
+	plugin := ""
+	outputJSON := false
+
+	for i := 1; i < len(args); i++ {
+		if args[i] == "-p" && i+1 < len(args) {
+			plugin = args[i+1]
+			i++
+		} else if args[i] == "--json" {
+			outputJSON = true
+		}
+	}
+
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+
+	image := "dfir-regripper:latest"
+	evidenceDir := filepath.Join(c.Path, "evidence")
+	outputDir := filepath.Join(c.Path, "output", "regripper")
+	os.MkdirAll(outputDir, 0755)
+
+	// Build rip.pl command
+	ripArgs := []string{"-r", fmt.Sprintf("/evidence/%s", hiveFile)}
+	if plugin != "" {
+		ripArgs = append(ripArgs, "-p", plugin)
+	}
+	if outputJSON {
+		ripArgs = append(ripArgs, "-j")
+	}
+
+	dockerArgs := []string{
+		"run", "--rm",
+		"-v", fmt.Sprintf("%s:/evidence:ro", evidenceDir),
+		"-v", fmt.Sprintf("%s:/output:rw", outputDir),
+		image,
+	}
+	dockerArgs = append(dockerArgs, ripArgs...)
 
 	cmd := exec.Command("docker", dockerArgs...)
 	cmd.Stdout = os.Stdout
