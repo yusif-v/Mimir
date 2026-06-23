@@ -13,7 +13,7 @@ import (
 
 func TestExportImportRoundTrip(t *testing.T) {
 	base := t.TempDir()
-	mgr := cases.NewManager(base, events.NewBus())
+	mgr := cases.NewManager(base, events.NewBus(), nil, nil)
 	c, err := mgr.Create("c1")
 	if err != nil {
 		t.Fatal(err)

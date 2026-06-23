@@ -5,23 +5,29 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/yusif-v/mimir/internal/events"
+	"github.com/yusif-v/mimir/internal/sandbox"
 )
 
 // Manager handles case lifecycle.
 type Manager struct {
-	storage *Storage
-	events  *events.Bus
-	current *Case
+	storage        *Storage
+	events         *events.Bus
+	current        *Case
+	sandboxMgr     *sandbox.Manager
+	sandboxRuntime *sandbox.Runtime
 }
 
 // NewManager creates a new case manager.
-func NewManager(basePath string, bus *events.Bus) *Manager {
+func NewManager(basePath string, bus *events.Bus, sandboxMgr *sandbox.Manager, sandboxRuntime *sandbox.Runtime) *Manager {
 	return &Manager{
-		storage: NewStorage(basePath),
-		events:  bus,
+		storage:        NewStorage(basePath),
+		events:         bus,
+		sandboxMgr:     sandboxMgr,
+		sandboxRuntime: sandboxRuntime,
 	}
 }
 
@@ -91,6 +97,28 @@ func (m *Manager) Open(name string) (*Case, error) {
 func (m *Manager) Close() error {
 	if m.current == nil {
 		return fmt.Errorf("no case is open")
+	}
+
+	// Check for running sandboxes before closing
+	if m.sandboxMgr != nil {
+		caseName := m.current.Name
+		sandboxes := m.sandboxMgr.List(caseName)
+		if len(sandboxes) > 0 {
+			fmt.Printf("Warning: %d sandbox(es) still running for case %s\n", len(sandboxes), caseName)
+			fmt.Print("Destroy all? [y/N] ")
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) == "y" {
+				for _, s := range sandboxes {
+					if s.ContainerID != "" {
+						m.sandboxRuntime.StopContainer(s.ContainerID)
+						m.sandboxRuntime.RemoveContainer(s.ContainerID)
+					}
+					m.sandboxMgr.Destroy(s.ID)
+				}
+				fmt.Println("All sandboxes destroyed.")
+			}
+		}
 	}
 
 	m.current.Status = "closed"

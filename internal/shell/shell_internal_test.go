@@ -63,7 +63,7 @@ func TestCmdRunRecordsTimeline(t *testing.T) {
 	app := &App{
 		Config: &config.Config{CasesPath: base},
 		Events: bus,
-		Cases:  cases.NewManager(base, bus),
+		Cases:  cases.NewManager(base, bus, nil, nil),
 		Tools:  tools.NewRegistry(bus),
 		Runner: tools.NewRunner(bus),
 		Output: tools.NewOutputCapture(bus),
@@ -126,7 +126,7 @@ func TestCmdRunRecordsFailedRun(t *testing.T) {
 	app := &App{
 		Config: &config.Config{CasesPath: base},
 		Events: bus,
-		Cases:  cases.NewManager(base, bus),
+		Cases:  cases.NewManager(base, bus, nil, nil),
 		Tools:  tools.NewRegistry(bus),
 		Runner: tools.NewRunner(bus),
 		Output: tools.NewOutputCapture(bus),
@@ -167,7 +167,7 @@ func TestCmdRunRecordsFailedRun(t *testing.T) {
 }
 
 func TestCmdTimelineNoCase(t *testing.T) {
-	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus())}
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus(), nil, nil)}
 	if err := app.cmdTimeline(nil); err == nil {
 		t.Fatal("expected error when no case is open")
 	}
@@ -216,7 +216,7 @@ func TestCmdShellSucceeds(t *testing.T) {
 
 func TestContextLineNoCase(t *testing.T) {
 	t.Setenv("MIMIR_ASCII", "1")
-	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus()), Theme: theme.DefaultTheme()}
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus(), nil, nil), Theme: theme.DefaultTheme()}
 	line := app.contextLine()
 	if !strings.Contains(strings.ToLower(line), "mimir") {
 		t.Fatalf("expected 'mimir' segment, got %q", line)
@@ -229,7 +229,7 @@ func TestContextLineNoCase(t *testing.T) {
 func TestContextLineWithOpenCase(t *testing.T) {
 	t.Setenv("MIMIR_ASCII", "1")
 	base := t.TempDir()
-	app := &App{Cases: cases.NewManager(base, events.NewBus()), Theme: theme.DefaultTheme()}
+	app := &App{Cases: cases.NewManager(base, events.NewBus(), nil, nil), Theme: theme.DefaultTheme()}
 	if _, err := app.Cases.Create("incident-42"); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestContextLineWithOpenCase(t *testing.T) {
 
 func TestBuildPromptMarker(t *testing.T) {
 	t.Setenv("MIMIR_ASCII", "1")
-	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus()), Theme: theme.DefaultTheme()}
+	app := &App{Cases: cases.NewManager(t.TempDir(), events.NewBus(), nil, nil), Theme: theme.DefaultTheme()}
 	if got := app.promptMarker(); !strings.Contains(got, ">") {
 		t.Fatalf("ASCII marker expected, got %q", got)
 	}
@@ -256,7 +256,7 @@ func TestCmdEvidenceAddAndList(t *testing.T) {
 	app := &App{
 		Config: &config.Config{CasesPath: base},
 		Events: bus,
-		Cases:  cases.NewManager(base, bus),
+		Cases:  cases.NewManager(base, bus, nil, nil),
 	}
 	if _, err := app.Cases.Create("c1"); err != nil {
 		t.Fatal(err)
@@ -309,7 +309,7 @@ func newTestAppWithCase(t *testing.T) (*App, *cases.Case) {
 	app := &App{
 		Config: &config.Config{CasesPath: base},
 		Events: bus,
-		Cases:  cases.NewManager(base, bus),
+		Cases:  cases.NewManager(base, bus, nil, nil),
 	}
 	if _, err := app.Cases.Create("tc"); err != nil {
 		t.Fatalf("create case: %v", err)
@@ -407,7 +407,7 @@ func TestCmdEvidenceVerifyMissingName(t *testing.T) {
 func TestCmdIOCExtractAndTrack(t *testing.T) {
 	base := t.TempDir()
 	bus := events.NewBus()
-	app := &App{Config: &config.Config{CasesPath: base}, Events: bus, Cases: cases.NewManager(base, bus)}
+	app := &App{Config: &config.Config{CasesPath: base}, Events: bus, Cases: cases.NewManager(base, bus, nil, nil)}
 	if _, err := app.Cases.Create("c1"); err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +440,7 @@ func TestCmdIOCExtractAndTrack(t *testing.T) {
 func TestCaseMatches(t *testing.T) {
 	base := t.TempDir()
 	bus := events.NewBus()
-	mgr := cases.NewManager(base, bus)
+	mgr := cases.NewManager(base, bus, nil, nil)
 	c, _ := mgr.Create("incident-42")
 	c.AddNote("found a suspicious beacon", "analyst")
 	_ = c.Save()

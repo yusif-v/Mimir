@@ -13,7 +13,7 @@ func newTestManager(t *testing.T) (*cases.Manager, string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	bus := events.NewBus()
-	mgr := cases.NewManager(tmpDir, bus)
+	mgr := cases.NewManager(tmpDir, bus, nil, nil)
 	return mgr, tmpDir
 }
 

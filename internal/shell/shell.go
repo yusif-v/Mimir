@@ -71,7 +71,9 @@ type App struct {
 // NewApp creates a new shell app with all subsystems wired.
 func NewApp(cfg *config.Config) *App {
 	bus := events.NewBus()
-	caseManager := cases.NewManager(cfg.CasesPath, bus)
+	sandboxManager := sandbox.NewManager(filepath.Join(cfg.CasesPath, "sandboxes"))
+	sandboxRuntime := sandbox.NewRuntime()
+	caseManager := cases.NewManager(cfg.CasesPath, bus, sandboxManager, sandboxRuntime)
 	toolRegistry := tools.NewRegistry(bus)
 	toolRunner := tools.NewRunner(bus)
 	outputCapture := tools.NewOutputCapture(bus)
@@ -94,9 +96,6 @@ func NewApp(cfg *config.Config) *App {
 	// Initialize plugin manager
 	pluginManager := plugins.NewManager(bus)
 	pluginManager.Discover()
-
-	sandboxManager := sandbox.NewManager(filepath.Join(cfg.CasesPath, "sandboxes"))
-	sandboxRuntime := sandbox.NewRuntime()
 
 	return &App{
 		Config:         cfg,

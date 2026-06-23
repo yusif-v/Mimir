@@ -199,7 +199,7 @@ func TestCompleterDoCompletesCommand(t *testing.T) {
 	bus := events.NewBus()
 	app := &App{
 		Tools: tools.NewRegistry(bus),
-		Cases: cases.NewManager(t.TempDir(), bus),
+		Cases: cases.NewManager(t.TempDir(), bus, nil, nil),
 	}
 	c := &Completer{app: app}
 	got, length := c.Do([]rune("ti"), 2)
@@ -213,7 +213,7 @@ func TestCompleterDoCompletesRegisteredTool(t *testing.T) {
 	bus := events.NewBus()
 	reg := tools.NewRegistry(bus)
 	reg.Register(&tools.Definition{Name: "volatility", DockerImage: "img"})
-	app := &App{Tools: reg, Cases: cases.NewManager(t.TempDir(), bus)}
+	app := &App{Tools: reg, Cases: cases.NewManager(t.TempDir(), bus, nil, nil)}
 	c := &Completer{app: app}
 	got, _ := c.Do([]rune("run vol"), 7)
 	gs := runesToStrings(got)
