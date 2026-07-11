@@ -689,3 +689,54 @@ func TestVolatilityHints(t *testing.T) {
 		t.Error("pslist should produce no plugin hints")
 	}
 }
+
+func TestCaptureIntoAppendsTimelineAndIOC(t *testing.T) {
+	c := &cases.Case{Name: "cap", Path: t.TempDir()}
+	if err := c.Scaffold(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "add", Name: "disk.dd", Time: "2026-07-11T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	out := "PID Name\n4 System\nConnecting to 1.2.3.4\n"
+	if err := captureInto(c, "sleuthkit", "icat -r img 0", "disk.dd", out); err != nil {
+		t.Fatalf("captureInto: %v", err)
+	}
+	var gotRun, gotIP bool
+	for _, e := range c.Timeline() {
+		if e.Type == "tool_run" && e.Payload["command"] == "icat -r img 0" {
+			gotRun = true
+		}
+	}
+	for _, ic := range c.IOCs() {
+		if ic.Type == "ipv4" && ic.Value == "1.2.3.4" {
+			gotIP = true
+		}
+	}
+	if !gotRun {
+		t.Error("expected a tool_run timeline event from captureInto")
+	}
+	if !gotIP {
+		t.Error("expected auto-IOC (1.2.3.4) from captureInto output")
+	}
+}
+
+func TestCaptureIntoVolatilityHints(t *testing.T) {
+	c := &cases.Case{Name: "cap", Path: t.TempDir()}
+	if err := c.Scaffold(); err != nil {
+		t.Fatal(err)
+	}
+	cmdOut := "C:\\Windows\\system32> whoami"
+	if err := captureInto(c, "volatility", "vol windows.cmdscan", "Challenge.raw", cmdOut); err != nil {
+		t.Fatalf("captureInto: %v", err)
+	}
+	var gotCmd bool
+	for _, ic := range c.IOCs() {
+		if ic.Type == "command" {
+			gotCmd = true
+		}
+	}
+	if !gotCmd {
+		t.Error("expected volatility command hint from captureInto")
+	}
+}

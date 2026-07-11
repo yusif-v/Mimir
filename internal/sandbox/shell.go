@@ -13,6 +13,10 @@ import (
 type Shell struct {
 	manager *Manager
 	runtime *Runtime
+	// Capture, if set, is called after a tool runs inside a sandbox
+	// so the host (the App) can append a timeline event + auto-IOC.
+	// It is wired by the App to the current case. Optional.
+	Capture func(tool, command, output string) error
 }
 
 // NewShell creates a new Shell command handler.
@@ -122,6 +126,15 @@ func (sh *Shell) Run(w io.Writer, args []string) error {
 			fmt.Fprintf(w, "Execution error: %v\n", err)
 		}
 		fmt.Fprintf(w, "Output:\n%s\n", output)
+		// Generalize capture (G2/G6): every sandbox tool run appends a
+		// tool_run timeline event + auto-IOC, the same way the dedicated
+		// `volatility` command does.
+		if sh.Capture != nil {
+			tool := firstWord(inlineCmd)
+			if cerr := sh.Capture(tool, inlineCmd, output); cerr != nil {
+				fmt.Fprintf(w, "Warning: capture failed: %v\n", cerr)
+			}
+		}
 	} else if s.TargetFile != "" {
 		// Preset target-file path.
 		fmt.Fprintf(w, "Executing %s in sandbox %s...\n", s.TargetFile, s.ID)
@@ -150,6 +163,16 @@ func indexOf(hay []string, needle string) int {
 		}
 	}
 	return -1
+}
+
+// firstWord returns the first whitespace-separated token of s.
+func firstWord(s string) string {
+	for i, r := range s {
+		if r == ' ' || r == '	' || r == '\n' {
+			return s[:i]
+		}
+	}
+	return s
 }
 
 // Shell handles "sandbox shell" command — opens interactive shell in container.

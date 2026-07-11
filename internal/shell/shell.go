@@ -44,7 +44,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.7.2"
+const Version = "0.7.3"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -1090,6 +1090,12 @@ func (a *App) cmdSandbox(args []string) error {
 		return fmt.Errorf("usage: sandbox <create|run|shell|logs|report|cp|destroy|list> [args...]")
 	}
 	sh := sandbox.NewShell(a.SandboxManager, a.SandboxRuntime)
+	sh.Capture = func(tool, command, output string) error {
+		if c := a.Cases.Current(); c != nil {
+			return captureInto(c, tool, command, "", output)
+		}
+		return nil
+	}
 	var buf bytes.Buffer
 	cmd := args[0]
 	switch cmd {
@@ -1951,4 +1957,70 @@ func splitArgs(line string) []string {
 		args = append(args, current.String())
 	}
 	return args
+}
+
+// captureInto appends a tool_run timeline event, auto-extracts IOCs from
+// the output, and (for Volatility plugins) records plugin-specific
+// hints. It is the SINGLE capture path: both the dedicated
+// `volatility` command and the generic `sandbox run -- <tool>` path
+// call it, so every tool benefits uniformly (fixes the gap where only
+// the volatility command recorded findings — G2/G6 in docs/gap-analysis.md).
+//
+// tool is the tool label (e.g. "volatility", "icat"), command is the
+// full command line, dump is the source evidence name (may be ""), and
+// out is the captured stdout.
+func captureInto(c *cases.Case, tool, command, dump, out string) error {
+	if c == nil {
+		return fmt.Errorf("captureInto: nil case")
+	}
+	now := time.Now().Format(time.RFC3339)
+
+	if err := c.AppendEvent(cases.TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: now,
+		Payload: map[string]any{
+			"tool":    tool,
+			"command": command,
+			"dump":    dump,
+			"output":  truncate(out, 2000),
+		},
+	}); err != nil {
+		return fmt.Errorf("append timeline: %w", err)
+	}
+
+	// Generic IOCs.
+	inds := ioc.Extract([]byte(out))
+	for _, ind := range inds {
+		if err := c.AppendIOC(cases.IOCRecord{
+			Type:   ind.Type,
+			Value:  ind.Value,
+			Source: tool + ":" + command + dumpSuffix(dump),
+			Time:   now,
+		}); err != nil {
+			return fmt.Errorf("append ioc: %w", err)
+		}
+	}
+
+	// Volatility plugin-aware hints (commands / NTLM hashes).
+	if strings.Contains(strings.ToLower(command), "vol ") || strings.ToLower(tool) == "volatility" {
+		for _, h := range volatilityHints(command, out) {
+			if err := c.AppendIOC(cases.IOCRecord{
+				Type:   h.typ,
+				Value:  h.val,
+				Source: tool + ":" + command + dumpSuffix(dump),
+				Time:   now,
+			}); err != nil {
+				return fmt.Errorf("append hint: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// dumpSuffix renders the dump name for an IOC Source string.
+func dumpSuffix(dump string) string {
+	if dump == "" {
+		return ""
+	}
+	return " (" + dump + ")"
 }

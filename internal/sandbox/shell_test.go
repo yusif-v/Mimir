@@ -78,3 +78,33 @@ func TestRunInlineCommand(t *testing.T) {
 		t.Errorf("expected dry-run exec output, got: %s", out)
 	}
 }
+
+func TestRunInlineInvokesCapture(t *testing.T) {
+	dir := t.TempDir()
+	mgr := NewManager(dir)
+	runtime := &Runtime{dryRun: true}
+	sh := NewShell(mgr, runtime)
+
+	var captured []string
+	sh.Capture = func(tool, command, output string) error {
+		captured = append(captured, tool+"|"+command)
+		return nil
+	}
+
+	s := mgr.Create("current-case", "ubuntu-22.04", "mimir-sandbox:ubuntu-22.04", "", 300)
+	if err := runtime.CreateContainer(s); err != nil {
+		t.Fatalf("CreateContainer dry-run: %v", err)
+	}
+	mgr.Update(s)
+
+	var buf bytes.Buffer
+	if err := sh.Run(&buf, []string{s.ID, "--", "icat", "-r", "img", "0"}); err != nil {
+		t.Fatalf("Run inline: %v", err)
+	}
+	if len(captured) != 1 {
+		t.Fatalf("expected Capture called once, got %d (%v)", len(captured), captured)
+	}
+	if captured[0] != "icat|icat -r img 0" {
+		t.Errorf("Capture got wrong tool/command: %s", captured[0])
+	}
+}

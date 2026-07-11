@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.2] - 2026-07-11
+## [0.7.3] - 2026-07-11
+
+### Fixed
+- SleuthKit template ENTRYPOINT now passthroughs the tool name, so `icat`/`fsstat`/`istat`/`mmls`/`blkcalc` (and all Sleuth Kit binaries) run — previously only `fls` worked (bare `["fls"]` ENTRYPOINT prependend `fls` to every arg).
+- Generalized tool-output capture (G2/G6): the generic `sandbox run <id> -- <tool> [args]` path now appends a `tool_run` timeline event + auto-extracts IOCs, the same way the dedicated `volatility` command does. Capture logic is now a single `captureInto` helper called by both paths, so every sandbox tool feeds the timeline, Findings, and IOCs.
+
+### Tests
+- `captureInto` appends timeline + IOCs (incl. volatility command hints); `sandbox run -- <tool>` invokes `Capture`.
 
 ### Added
 - Report now surfaces actual tool output in a `## Tool Output (Findings)` section (captured from `tool_run` timeline events), so findings appear in the report — not just that a tool ran.

@@ -8,10 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/yusif-v/mimir/internal/cases"
-	"github.com/yusif-v/mimir/internal/ioc"
 )
 
 // volImage is the Docker image Mimir's volatility catalog template builds.
@@ -98,55 +96,10 @@ func (a *App) cmdVolatility(args []string) error {
 
 	fmt.Printf("%s[volatility %s]%s\n%s\n", colorCyan, pluginArgs[0], colorReset, out)
 
-	// Capture to timeline.
-	now := time.Now().Format(time.RFC3339)
-	if err := c.AppendEvent(cases.TimelineEvent{
-		Type:      "tool_run",
-		Timestamp: now,
-		Payload: map[string]any{
-			"tool":    "volatility",
-			"command": "vol " + strings.Join(pluginArgs, " "),
-			"dump":    base,
-			"output":  truncate(out, 2000),
-		},
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
-	}
-
-	// Auto-extract IOCs from the output.
-	inds := ioc.Extract([]byte(out))
-	if len(inds) > 0 {
-		for _, ind := range inds {
-			if err := c.AppendIOC(cases.IOCRecord{
-				Type:   ind.Type,
-				Value:  ind.Value,
-				Source: "volatility:" + pluginArgs[0] + " (" + base + ")",
-				Time:   now,
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "%swarning:%s append ioc: %v\n", colorYellow, colorReset, err)
-				break
-			}
-		}
-		fmt.Printf("%s%d IOC(s) extracted from output.%s\n", colorGreen, len(inds), colorReset)
-	}
-
-	// Plugin-aware hints (#5): surface commands / credential hashes that the
-	// generic extractor misses (cmdscan/cmdline/consoles → commands,
-	// hashdump → NTLM hashes). These become IOCs + appear in report Findings.
-	hints := volatilityHints(pluginArgs[0], out)
-	for _, h := range hints {
-		if err := c.AppendIOC(cases.IOCRecord{
-			Type:   h.typ,
-			Value:  h.val,
-			Source: "volatility:" + pluginArgs[0] + " (" + base + ")",
-			Time:   now,
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "%swarning:%s append hint: %v\n", colorYellow, colorReset, err)
-			break
-		}
-	}
-	if len(hints) > 0 {
-		fmt.Printf("%s%d plugin hint(s) captured.%s\n", colorCyan, len(hints), colorReset)
+	// Capture to timeline + IOCs (shared with the generic sandbox
+	// runner via captureInto — see its doc for the exact behavior).
+	if err := captureInto(c, "volatility", "vol "+strings.Join(pluginArgs, " "), base, out); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s capture: %v\n", colorYellow, colorReset, err)
 	}
 	return nil
 }
