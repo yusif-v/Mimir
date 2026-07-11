@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -128,7 +129,62 @@ func (a *App) cmdVolatility(args []string) error {
 		}
 		fmt.Printf("%s%d IOC(s) extracted from output.%s\n", colorGreen, len(inds), colorReset)
 	}
+
+	// Plugin-aware hints (#5): surface commands / credential hashes that the
+	// generic extractor misses (cmdscan/cmdline/consoles → commands,
+	// hashdump → NTLM hashes). These become IOCs + appear in report Findings.
+	hints := volatilityHints(pluginArgs[0], out)
+	for _, h := range hints {
+		if err := c.AppendIOC(cases.IOCRecord{
+			Type:   h.typ,
+			Value:  h.val,
+			Source: "volatility:" + pluginArgs[0] + " (" + base + ")",
+			Time:   now,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s append hint: %v\n", colorYellow, colorReset, err)
+			break
+		}
+	}
+	if len(hints) > 0 {
+		fmt.Printf("%s%d plugin hint(s) captured.%s\n", colorCyan, len(hints), colorReset)
+	}
 	return nil
+}
+
+// volHint is a plugin-specific indicator (command / credential hash).
+type volHint struct {
+	typ string
+	val string
+}
+
+// volatilityHints extracts plugin-specific findings from Volatility output
+// that the generic IOC regex extractor would miss.
+func volatilityHints(plugin, out string) []volHint {
+	var hints []volHint
+	low := strings.ToLower(plugin)
+	switch {
+	case strings.Contains(low, "cmdscan"), strings.Contains(low, "cmdline"),
+		strings.Contains(low, "consoles"):
+		// Capture executed commands (lines that look like a command invocation).
+		for _, line := range strings.Split(out, "\n") {
+			t := strings.TrimSpace(line)
+			if t == "" {
+				continue
+			}
+			// Heuristic: a prompt line ending in '>' or a path-like token.
+			if strings.HasSuffix(t, ">") || strings.Contains(t, "\\") ||
+				strings.HasPrefix(t, "C:") || strings.HasPrefix(t, "cmd.exe") {
+				hints = append(hints, volHint{typ: "command", val: t})
+			}
+		}
+	case strings.Contains(low, "hashdump"):
+		// NTLM hashes: lines like "user:rid:lmhash:ntlmhash:::"
+		re := regexp.MustCompile(`(?m)^[^\s:]+:\d+:[0-9a-fA-F]{32}:([0-9a-fA-F]{32}):`)
+		for _, m := range re.FindAllStringSubmatch(out, -1) {
+			hints = append(hints, volHint{typ: "ntlm", val: m[1]})
+		}
+	}
+	return hints
 }
 
 // resolveDump returns the absolute path to the memory dump to analyze.

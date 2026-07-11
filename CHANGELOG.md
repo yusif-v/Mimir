@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.1] - 2026-07-11
+## [0.7.2] - 2026-07-11
+
+### Added
+- Report now surfaces actual tool output in a `## Tool Output (Findings)` section (captured from `tool_run` timeline events), so findings appear in the report — not just that a tool ran.
+- `timeline build --auto` narrative now renders `tool_run` events with the command + "(output in Findings)" instead of dumping the full payload; `tool_run` correctly grouped under Acquisition & Analysis.
+- Volatility plugin-aware hints: `volatility` captures executed commands from cmdscan/cmdline/consoles output and NTLM hashes from hashdump as IOCs (types `command` / `ntlm`).
+
+### Tests
+- BuildReport surfaces tool output; narrative shows tool_run command; volatilityHints extracts commands + NTLM hashes.
 
 ### Added
 - `volatility` command (alias `mem`): first-class memory forensics via Volatility 3. Resolves the dump from `-f <dump>` or auto-selects evidence tagged `memory-dump`, mounts it read-only into `dfir-volatility:latest`, runs `vol <plugin> -f /evidence/<dump>`, prints output, appends a `tool_run` timeline event, and auto-extracts IOCs.

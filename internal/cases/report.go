@@ -92,6 +92,35 @@ func BuildReport(c *Case, summary string) (string, error) {
 		}
 	}
 
+	// Tool Output / Findings (#4): surface actual command output, not just
+	// that a tool ran. Captured from tool_run events' "output" payload.
+	b.WriteString("\n## Tool Output (Findings)\n\n")
+	var toolRuns int
+	for _, ev := range events {
+		if ev.Type != "tool_run" {
+			continue
+		}
+		cmd, _ := ev.Payload["command"].(string)
+		out, _ := ev.Payload["output"].(string)
+		dump, _ := ev.Payload["dump"].(string)
+		if cmd == "" && out == "" {
+			continue
+		}
+		toolRuns++
+		b.WriteString(fmt.Sprintf("### `%s`\n", cmd))
+		if dump != "" {
+			b.WriteString(fmt.Sprintf("_source: %s_\n\n", dump))
+		}
+		if out == "" {
+			b.WriteString("_no output captured_\n\n")
+			continue
+		}
+		b.WriteString("```\n" + out + "\n```\n\n")
+	}
+	if toolRuns == 0 {
+		b.WriteString("_No tool output captured. Run tools (e.g. `volatility <plugin>`) to populate findings._\n")
+	}
+
 	// Notes
 	if len(c.Notes) > 0 {
 		b.WriteString("\n## Analyst Notes\n\n")
@@ -132,6 +161,17 @@ func BuildNarrative(c *Case) (string, error) {
 			phase = p
 			b.WriteString(fmt.Sprintf("\n## %s\n\n", phase))
 		}
+		if ev.Type == "tool_run" {
+			cmd, _ := ev.Payload["command"].(string)
+			dump, _ := ev.Payload["dump"].(string)
+			line := fmt.Sprintf("- [%s] %s", ev.Timestamp, cmd)
+			if dump != "" {
+				line += fmt.Sprintf(" _(source: %s)_", dump)
+			}
+			line += " — output captured (see Findings)"
+			b.WriteString(line + "\n")
+			continue
+		}
 		payload := ""
 		if len(ev.Payload) > 0 {
 			payload = fmt.Sprintf(" — %v", ev.Payload)
@@ -152,7 +192,7 @@ func phaseFor(eventType string) string {
 	switch {
 	case eventType == "evidence_added" || eventType == "evidence_tagged" ||
 		eventType == "tool.started" || eventType == "tool.finished" ||
-		eventType == "tool.run" || eventType == "ioc_extracted" ||
+		eventType == "tool.run" || eventType == "tool_run" || eventType == "ioc_extracted" ||
 		strings.HasPrefix(eventType, "sandbox."):
 		return "Acquisition & Analysis"
 	case eventType == "note" || eventType == "ai_query" || eventType == "ai_response" ||

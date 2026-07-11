@@ -656,3 +656,36 @@ func TestVolatilityRequiresOpenCase(t *testing.T) {
 		t.Error("cmdVolatility with no case: expected error")
 	}
 }
+
+func TestVolatilityHints(t *testing.T) {
+	// cmdscan-style output → command hints.
+	cmdOut := "CommandProcess: cmd.exe\nC:\\Windows\\system32> whoami /all\nC:\\> ipconfig"
+	hints := volatilityHints("windows.cmdscan", cmdOut)
+	var cmds []string
+	for _, h := range hints {
+		if h.typ == "command" {
+			cmds = append(cmds, h.val)
+		}
+	}
+	if len(cmds) == 0 {
+		t.Fatal("expected command hints from cmdscan output")
+	}
+
+	// hashdump-style output → ntlm hints.
+	hashOut := "Administrator:500:abcdef00000000000000000000000000:101da33f44e92c27835e64322d72e8b7:::"
+	hints2 := volatilityHints("windows.hashdump", hashOut)
+	var found bool
+	for _, h := range hints2 {
+		if h.typ == "ntlm" && h.val == "101da33f44e92c27835e64322d72e8b7" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected ntlm hint from hashdump output, got %+v", hints2)
+	}
+
+	// pslist (no hints).
+	if len(volatilityHints("windows.pslist", "PID Name\n4 System")) != 0 {
+		t.Error("pslist should produce no plugin hints")
+	}
+}

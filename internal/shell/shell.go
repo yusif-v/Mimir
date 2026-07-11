@@ -44,7 +44,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.7.1"
+const Version = "0.7.2"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",

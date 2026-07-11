@@ -74,3 +74,53 @@ func TestBuildNarrativeEmpty(t *testing.T) {
 		t.Errorf("expected empty-marker, got: %s", narr)
 	}
 }
+
+func TestBuildReportSurfacesToolOutput(t *testing.T) {
+	c := newReportCase(t)
+	// Simulate a volatility run captured to the timeline (as cmdVolatility does).
+	c.AppendEvent(TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: "2026-07-11T10:05:00Z",
+		Payload: map[string]any{
+			"tool":    "volatility",
+			"command": "vol windows.pslist",
+			"dump":    "Challenge.raw",
+			"output":  "PID	Name\n4	System\n",
+		},
+	})
+	md, err := BuildReport(c, "")
+	if err != nil {
+		t.Fatalf("BuildReport: %v", err)
+	}
+	if !strings.Contains(md, "## Tool Output (Findings)") {
+		t.Error("report missing Findings section")
+	}
+	if !strings.Contains(md, "vol windows.pslist") {
+		t.Error("report should name the command in Findings")
+	}
+	if !strings.Contains(md, "PID	Name") {
+		t.Error("report should include captured tool output")
+	}
+	if !strings.Contains(md, "Challenge.raw") {
+		t.Error("report should note the dump source")
+	}
+}
+
+func TestBuildNarrativeToolRunShowsCommand(t *testing.T) {
+	c := newReportCase(t)
+	c.AppendEvent(TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: "2026-07-11T10:05:00Z",
+		Payload:   map[string]any{"command": "vol windows.pslist", "dump": "Challenge.raw"},
+	})
+	narr, err := c.Narrative()
+	if err != nil {
+		t.Fatalf("Narrative: %v", err)
+	}
+	if !strings.Contains(narr, "vol windows.pslist") {
+		t.Error("narrative should show the command")
+	}
+	if !strings.Contains(narr, "output captured (see Findings)") {
+		t.Error("narrative should point to Findings, not dump output")
+	}
+}
