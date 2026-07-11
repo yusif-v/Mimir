@@ -73,37 +73,41 @@ is required.
 
 ## 4. Ready-to-Run Procedure (for when the dump is available)
 
-Place the decompressed dump at e.g. ~/dumps/Challenge.raw, then:
+CORRECTED (2026-07-11, v0.7.1): Mimir now has a dedicated `volatility` command.
+The earlier procedure (generic `sandbox create/run`) was wrong — `sandbox run`
+only executes a preset TargetFile and does NOT accept inline `vol` args. Use the
+`volatility` command instead.
 
-  # 1. Build image (already done once)
-  docker build -t dfir-volatility:latest \
-    -f internal/catalog/templates/volatility/Dockerfile \
-    internal/catalog/templates/volatility
+Place the decompressed dump in the case evidence dir (or pass an absolute path):
+
+  # 1. Build image (once; 'build volatility' uses the catalog template)
+  mimir> build volatility
 
   # 2. Open Mimir and create the case
-  mimir
   mimir> case create memlabs0
   mimir> case open memlabs0
   mimir> evidence add ~/dumps/Challenge.raw --tag memory-dump
 
-  # 3. Profile / info
+  # 3. Profile / info (auto-selects the memory-dump evidence; or -f <dump>)
   mimir> volatility windows.info -f Challenge.raw
-  mimir> volatility windows.pslist -f Challenge.raw
+  mimir> volatility windows.pslist
 
   # 4. Investigation (per Lab 0 walkthrough)
-  mimir> volatility windows.cmdscan -f Challenge.raw
-  mimir> volatility windows.envars -f Challenge.raw
-  mimir> volatility windows.hashdump -f Challenge.raw
-  mimir> volatility timeliner.Timeliner -f Challenge.raw
+  mimir> volatility windows.cmdscan
+  mimir> volatility windows.envars
+  mimir> volatility windows.hashdump
+  mimir> volatility timeliner.Timeliner
 
   # 5. Correlate + report
   mimir> timeline build --auto
   mimir> report --format md            # or --format pdf (needs pandoc Docker)
-  mimir> timeline export --format csv
 
-Note: the `volatility` Mimir command maps to `docker run --rm -v <evidence>:/evidence
-dfir-volatility:latest vol ...`. Confirm the exact subcommand name with `mimir>
-help` (it may be `vol`, `mem`, or `sandbox run volatility` depending on the build).
+The `volatility` command mounts the dump read-only into dfir-volatility:latest,
+runs `vol <plugin> -f /evidence/<dump>`, prints output, appends a tool_run
+timeline event, and auto-extracts IOCs. Alias: `mem`.
+
+Alternative (generic sandbox, advanced): `sandbox run <id> -- vol windows.pslist`
+now accepts inline commands via the `--` separator.
 
 ---
 

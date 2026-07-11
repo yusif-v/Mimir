@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yusif-v/mimir/internal/ai"
 	"github.com/yusif-v/mimir/internal/cases"
@@ -600,4 +601,58 @@ func reportGenerated(c *cases.Case) bool {
 		}
 	}
 	return false
+}
+
+func TestResolveDumpAutoSelectsMemoryTag(t *testing.T) {
+	c := &cases.Case{Name: "t", Path: t.TempDir()}
+	if err := c.Scaffold(); err != nil {
+		t.Fatalf("scaffold: %v", err)
+	}
+	// Write two evidence files on disk; one tagged memory-dump.
+	diskImg := filepath.Join(c.Path, "evidence", "disk.dd")
+	memDump := filepath.Join(c.Path, "evidence", "Challenge.raw")
+	if err := os.WriteFile(diskImg, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(memDump, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Format(time.RFC3339)
+	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "add", Name: "disk.dd", Time: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "add", Name: "Challenge.raw", Tags: []string{"memory-dump"}, Time: now}); err != nil {
+		t.Fatal(err)
+	}
+
+	// No -f given → should auto-pick the memory-dump tag.
+	got, err := resolveDump(c, "")
+	if err != nil {
+		t.Fatalf("resolveDump: %v", err)
+	}
+	if got != memDump {
+		t.Errorf("resolveDump auto-select: got %s, want %s", got, memDump)
+	}
+
+	// Explicit -f by name → resolves under evidence dir.
+	got2, err := resolveDump(c, "disk.dd")
+	if err != nil {
+		t.Fatalf("resolveDump disk.dd: %v", err)
+	}
+	if got2 != diskImg {
+		t.Errorf("resolveDump explicit: got %s, want %s", got2, diskImg)
+	}
+
+	// Unknown dump → error.
+	if _, err := resolveDump(c, "nope.raw"); err == nil {
+		t.Error("resolveDump unknown: expected error")
+	}
+}
+
+func TestVolatilityRequiresOpenCase(t *testing.T) {
+	app := newTestApp(t)
+	// No case opened.
+	if err := app.cmdVolatility([]string{"windows.pslist"}); err == nil {
+		t.Error("cmdVolatility with no case: expected error")
+	}
 }

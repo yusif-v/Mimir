@@ -78,11 +78,25 @@ func (sh *Shell) Create(w io.Writer, args []string) error {
 }
 
 // Run handles "sandbox run" command.
+// Usage:
+//
+//	sandbox run <id>            -> runs the preset TargetFile
+//	sandbox run <id> -- <cmd>   -> runs an arbitrary command/args in the container
 func (sh *Shell) Run(w io.Writer, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: sandbox run <id>")
+		return fmt.Errorf("usage: sandbox run <id> [-- <command> [args...]]")
 	}
 	id := args[0]
+	rest := args[1:]
+
+	// Split optional "--" separator for an inline command.
+	var inlineCmd string
+	if i := indexOf(rest, "--"); i >= 0 {
+		parts := rest[i+1:]
+		inlineCmd = strings.Join(parts, " ")
+		rest = rest[:i]
+	}
+
 	s, ok := sh.manager.Get(id)
 	if !ok {
 		return fmt.Errorf("sandbox not found: %s", id)
@@ -100,14 +114,24 @@ func (sh *Shell) Run(w io.Writer, args []string) error {
 		fmt.Fprintf(w, "Warning: capture failed to start: %v\n", err)
 	}
 
-	// Run target file
-	if s.TargetFile != "" {
+	if inlineCmd != "" {
+		// Inline command path: run arbitrary args via sh -c.
+		fmt.Fprintf(w, "Running in sandbox %s: %s\n", s.ID, inlineCmd)
+		output, err := sh.runtime.Exec(s.ContainerID, inlineCmd)
+		if err != nil {
+			fmt.Fprintf(w, "Execution error: %v\n", err)
+		}
+		fmt.Fprintf(w, "Output:\n%s\n", output)
+	} else if s.TargetFile != "" {
+		// Preset target-file path.
 		fmt.Fprintf(w, "Executing %s in sandbox %s...\n", s.TargetFile, s.ID)
 		output, err := sh.runtime.RunTarget(s.ContainerID, s.TargetFile)
 		if err != nil {
 			fmt.Fprintf(w, "Execution error: %v\n", err)
 		}
 		fmt.Fprintf(w, "Output:\n%s\n", output)
+	} else {
+		fmt.Fprintf(w, "Sandbox %s has no target file and no command given.\n", s.ID)
 	}
 
 	s.Status = SandboxStopped
@@ -116,6 +140,16 @@ func (sh *Shell) Run(w io.Writer, args []string) error {
 
 	fmt.Fprintf(w, "Sandbox %s finished.\n", s.ID)
 	return nil
+}
+
+// indexOf returns the position of the first "needle" in hay, or -1.
+func indexOf(hay []string, needle string) int {
+	for i, v := range hay {
+		if v == needle {
+			return i
+		}
+	}
+	return -1
 }
 
 // Shell handles "sandbox shell" command — opens interactive shell in container.

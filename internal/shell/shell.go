@@ -44,7 +44,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.7.0"
+const Version = "0.7.1"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -319,6 +319,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdRegRipper(args)
 	case "report":
 		return a.cmdReport(args)
+	case "volatility", "mem":
+		return a.cmdVolatility(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -351,6 +353,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %ssleuthkit%s     disk forensic analysis: fls, fsstat, icat, mmls, blkcalc, istat\n", colorGreen, colorReset)
 	fmt.Printf("  %sregripper%s    Windows registry hive analysis (auto-detect, -p plugin, --json)\n", colorGreen, colorReset)
 	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
+	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [args...]\n", colorGreen, colorReset)
 	return nil
 }
 

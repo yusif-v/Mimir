@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-07-11
+## [0.7.1] - 2026-07-11
+
+### Added
+- `volatility` command (alias `mem`): first-class memory forensics via Volatility 3. Resolves the dump from `-f <dump>` or auto-selects evidence tagged `memory-dump`, mounts it read-only into `dfir-volatility:latest`, runs `vol <plugin> -f /evidence/<dump>`, prints output, appends a `tool_run` timeline event, and auto-extracts IOCs.
+- `sandbox run <id> -- <command>` now accepts an inline command/args (via `--` separator) instead of only a preset TargetFile.
+
+### Fixed
+- Report's practice procedure corrected: `volatility` is the real command; `sandbox run` does not accept inline `vol` args.
 
 ### Added
 - `report [path] [--format md|pdf] [--no-ai]` — full incident report (metadata + evidence + IOCs + timeline + notes + AI executive summary). PDF via optional pandoc Docker, degrades to Markdown with a warning. Records a `report_generated` timeline event.
