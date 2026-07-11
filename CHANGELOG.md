@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `lnkparse`: LinkFlags are now decoded from the correct MS-SHLLINK offset (20-23). Previously the header read offset 20 as a non-existent "File Size" field and discarded the real flags, so link-flag output was always empty.
+- Event bus `Off()` now actually removes handlers: `On()` returns a subscription ID and `Off(name, id)` deletes exactly that handler (previous implementation was a no-op that removed nothing).
+- Evidence/IOC timeline appends no longer swallow write errors silently — disk failures are surfaced as warnings on stderr.
+
+### Added
+- `internal/config`: test coverage for defaults, env-var overrides (MIMIR_HOME/MIMIR_CASES_PATH/MIMIR_LOG_LEVEL), merge precedence, and default-config round-trip.
+- `internal/events`: regression tests for targeted handler removal, last-handler cleanup, and unknown-ID no-op.
+
 ## [0.6.0] - 2026-07-11
 
 ### Added

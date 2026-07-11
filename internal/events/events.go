@@ -10,7 +10,8 @@ import (
 // Bus is a simple synchronous event bus.
 type Bus struct {
 	mu       sync.RWMutex
-	handlers map[string][]func(Event)
+	handlers map[string]map[int]func(Event)
+	nextID   int
 }
 
 // Event represents an emitted event with a name and optional data.
@@ -22,36 +23,44 @@ type Event struct {
 // NewBus creates a new event bus.
 func NewBus() *Bus {
 	return &Bus{
-		handlers: make(map[string][]func(Event)),
+		handlers: make(map[string]map[int]func(Event)),
 	}
 }
 
-// On registers a handler for an event name.
-func (b *Bus) On(name string, handler func(Event)) {
+// On registers a handler for an event name and returns a subscription ID
+// that can be passed to Off to remove exactly this handler.
+func (b *Bus) On(name string, handler func(Event)) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.handlers[name] = append(b.handlers[name], handler)
+	if b.handlers[name] == nil {
+		b.handlers[name] = make(map[int]func(Event))
+	}
+	b.nextID++
+	id := b.nextID
+	b.handlers[name][id] = handler
+	return id
 }
 
-// Off removes a handler for an event name.
-// Note: removes all handlers registered with this function reference.
-func (b *Bus) Off(name string, handler func(Event)) {
+// Off removes the handler registered under the given subscription ID for an
+// event name. Removing an unknown ID is a no-op.
+func (b *Bus) Off(name string, id int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	handlers := b.handlers[name]
-	var filtered []func(Event)
-	for _, h := range handlers {
-		// Can't compare func values in Go, so we just remove all
-		_ = h
+	if hs := b.handlers[name]; hs != nil {
+		delete(hs, id)
+		if len(hs) == 0 {
+			delete(b.handlers, name)
+		}
 	}
-	_ = filtered
 }
 
 // Emit fires all handlers for an event name synchronously.
 func (b *Bus) Emit(name string, data map[string]any) {
 	b.mu.RLock()
-	handlers := make([]func(Event), len(b.handlers[name]))
-	copy(handlers, b.handlers[name])
+	handlers := make([]func(Event), 0, len(b.handlers[name]))
+	for _, h := range b.handlers[name] {
+		handlers = append(handlers, h)
+	}
 	b.mu.RUnlock()
 
 	evt := Event{Name: name, Data: data}

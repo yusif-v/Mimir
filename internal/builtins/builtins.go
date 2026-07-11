@@ -954,14 +954,8 @@ func lnkparseTool(args []string) (string, error) {
 		fmt.Fprintf(&sb, "[!] Warning: CLSID mismatch — may not be a valid LNK\n\n")
 	}
 
-	// Header
-	fileSize := binary.LittleEndian.Uint32(data[20:24])
+	// Header (MS-SHLLINK ShellLinkHeader: LinkFlags at offset 20, not a FileSize field)
 	fmt.Fprintf(&sb, "[Header]\n")
-	fmt.Fprintf(&sb, "  File Size:            %d bytes\n", fileSize)
-
-	// Link flags
-	linkFlags := binary.LittleEndian.Uint32(data[20:24])
-	_ = linkFlags
 
 	// File attributes
 	fileAttrs := binary.LittleEndian.Uint32(data[24:28])
@@ -992,30 +986,8 @@ func lnkparseTool(args []string) (string, error) {
 	hotKeyHi := data[65]
 	fmt.Fprintf(&sb, "  Hot Key:              0x%02x%02x\n", hotKeyHi, hotKeyLo)
 
-	// Link flags at offset 20 (actually at 20 bytes in)
-	// Re-read: the header structure is:
-	// 0-3: HeaderSize (0x4C)
-	// 4-19: CLSID
-	// 20-23: LinkFlags  (actually at offset 20)
-	// Let me re-parse correctly
+	// Link flags (MS-SHLLINK ShellLinkHeader offset 20-23)
 	linkFlagsVal := binary.LittleEndian.Uint32(data[20:24])
-	// Wait, that's overlapping with FileSize above. Let me use the correct offsets.
-	// Actually the spec says:
-	// Offset 0: HeaderSize (4 bytes) = 0x4C = 76
-	// Offset 4: CLSID (16 bytes)
-	// Offset 20: LinkFlags (4 bytes)
-	// Offset 24: FileAttributes (4 bytes)
-	// Offset 28: CreationTime (8 bytes)
-	// Offset 36: AccessTime (8 bytes)
-	// Offset 44: WriteTime (8 bytes)
-	// Offset 52: TargetFileSize (4 bytes)
-	// Offset 56: IconIndex (4 bytes)
-	// Offset 60: ShowCommand (4 bytes)
-	// Offset 64: HotKey (2 bytes)
-	// Offset 66: Reserved (2 bytes)
-	// Offset 68: Reserved (4 bytes)
-	// Offset 72: Reserved (4 bytes)
-	// Offset 76: LinkTargetIDList (variable)
 
 	// Re-do with correct offsets
 	fmt.Fprintf(&sb, "\n[Link Flags]\n")

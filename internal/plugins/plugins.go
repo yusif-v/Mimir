@@ -23,9 +23,14 @@ func NewAPI(bus *events.Bus) *API {
 	}
 }
 
-// On subscribes to an event.
-func (a *API) On(event string, handler func(events.Event)) {
-	a.events.On(event, handler)
+// On subscribes to an event and returns a subscription ID for Off.
+func (a *API) On(event string, handler func(events.Event)) int {
+	return a.events.On(event, handler)
+}
+
+// Off removes a subscription previously registered via On.
+func (a *API) Off(event string, id int) {
+	a.events.Off(event, id)
 }
 
 // Emit fires an event.

@@ -838,15 +838,19 @@ func (a *App) cmdIOC(args []string) error {
 		tbl.Rows = append(tbl.Rows, []string{ind.Type, ind.Value})
 		counts[ind.Type]++
 		if c != nil {
-			_ = c.AppendIOC(cases.IOCRecord{Type: ind.Type, Value: ind.Value, Source: source, Time: now})
+			if err := c.AppendIOC(cases.IOCRecord{Type: ind.Type, Value: ind.Value, Source: source, Time: now}); err != nil {
+				fmt.Fprintf(os.Stderr, "%swarning:%s append ioc: %v\n", colorYellow, colorReset, err)
+			}
 		}
 	}
 	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	if c != nil {
-		_ = c.AppendEvent(cases.TimelineEvent{
+		if err := c.AppendEvent(cases.TimelineEvent{
 			Type: "ioc_extracted", Timestamp: now,
 			Payload: map[string]any{"source": source, "counts": counts, "total": len(inds)},
-		})
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+		}
 		fmt.Printf("→ %d indicators tracked\n", len(inds))
 	}
 	return nil
@@ -1444,10 +1448,12 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	}); err != nil {
 		return err
 	}
-	_ = c.AppendEvent(cases.TimelineEvent{
+	if err := c.AppendEvent(cases.TimelineEvent{
 		Type: "evidence_added", Timestamp: now,
 		Payload: map[string]any{"name": name, "sha256": sum, "tags": tags},
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+	}
 	short := sum
 	if len(short) > 12 {
 		short = short[:12]
@@ -1465,10 +1471,12 @@ func (a *App) evidenceTag(c *cases.Case, args []string) error {
 	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "tag", Name: name, Tags: tags, Time: now}); err != nil {
 		return err
 	}
-	_ = c.AppendEvent(cases.TimelineEvent{
+	if err := c.AppendEvent(cases.TimelineEvent{
 		Type: "evidence_tagged", Timestamp: now,
 		Payload: map[string]any{"name": name, "tags": tags},
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+	}
 	fmt.Printf("tagged %s: %s\n", name, strings.Join(tags, ", "))
 	return nil
 }
