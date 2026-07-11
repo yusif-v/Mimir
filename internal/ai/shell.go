@@ -3,6 +3,8 @@ package ai
 import (
 	"context"
 	"fmt"
+
+	"github.com/yusif-v/mimir/internal/cases"
 )
 
 // Shell integrates AI into the Mimir REPL.
@@ -91,6 +93,31 @@ func (s *Shell) Explain(ctx context.Context, output string, messages []Message) 
 		Content: fmt.Sprintf("Explain what this output means in the context of a DFIR investigation:\n\n%s", output),
 	})
 	return s.complete(ctx, messages, false)
+}
+
+// Summarize produces a structured case narrative (what happened, key
+// evidence, notable IOCs, recommended next steps) and returns it as a string
+// rather than streaming. Returns an error if no case context is available.
+func (s *Shell) Summarize(ctx context.Context, c *cases.Case) (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("ai: no case available")
+	}
+	messages := BuildAnalysisContext(c)
+	messages = append(messages, Message{
+		Role:    RoleUser,
+		Content: "Write a concise incident summary for this case. Cover: (1) what the evidence shows happened, (2) the most important evidence items, (3) notable IOCs, (4) recommended next investigation steps. Be specific and technical.",
+	})
+	return s.completeString(ctx, messages)
+}
+
+// completeString runs a non-streaming completion and returns the full text.
+func (s *Shell) completeString(ctx context.Context, messages []Message) (string, error) {
+	opts := ProviderOptions{MaxTokens: 2048, Temperature: 0.2}
+	resp, err := s.client.Complete(ctx, messages, opts)
+	if err != nil {
+		return "", err
+	}
+	return resp, nil
 }
 
 func (s *Shell) complete(ctx context.Context, messages []Message, stream bool) error {

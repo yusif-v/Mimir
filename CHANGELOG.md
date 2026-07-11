@@ -7,17 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- `lnkparse`: LinkFlags are now decoded from the correct MS-SHLLINK offset (20-23). Previously the header read offset 20 as a non-existent "File Size" field and discarded the real flags, so link-flag output was always empty.
-- Event bus `Off()` now actually removes handlers: `On()` returns a subscription ID and `Off(name, id)` deletes exactly that handler (previous implementation was a no-op that removed nothing).
-- Evidence/IOC timeline appends no longer swallow write errors silently — disk failures are surfaced as warnings on stderr.
+## [0.7.0] - 2026-07-11
 
 ### Added
-- Modular AI provider registry (`internal/ai/registry.go`): providers self-register via `init()`, replacing the hardcoded switch. Unknown provider names fall back to the OpenAI-compatible factory.
-- `ai models` — lists models the active provider serves (Ollama `/api/tags`, OpenAI `/models`); Anthropic reports discovery unsupported.
-- `ai use <model> [--save]` — switches the active model at runtime; `--save` persists it to `config.yaml` via `config.Config.Save()`.
-- `config.Config.Save()` — marshals the live config back to disk.
-- Tests: provider registry (registration, case-insensitive lookup, fallback), `SetModel`, Ollama/OpenAI model parsing, unsupported-provider sentinel, `humanSize`, `ai use` switch + validation + arg checks.
+- `report [path] [--format md|pdf] [--no-ai]` — full incident report (metadata + evidence + IOCs + timeline + notes + AI executive summary). PDF via optional pandoc Docker, degrades to Markdown with a warning. Records a `report_generated` timeline event.
+- `ai summarize` — standalone case narrative from timeline + evidence + IOCs.
+- `timeline build --auto` — correlates case events into a phase-labeled `narrative.md` (does not mutate timeline.jsonl).
+- Auto-AI on `evidence add`: opt-in via `ai.auto_analyze_evidence` (env `MIMIR_AI_AUTO_ANALYZE`), non-blocking; attaches the analysis as an `ai_response` event.
+- `internal/cases`: `BuildReport`, `BuildNarrative`/`Case.Narrative` for programmatic report + narrative generation.
+- `ai.Summarize` returns a structured case narrative as a string (non-streaming).
+
+### Changed
+- Modular AI provider registry + `ai models` + `ai use <model> [--save]` (Light redesign).
+- lnkparse now decodes LinkFlags from the correct MS-SHLLINK offset; event bus `Off()` actually removes handlers; silent append errors surfaced to stderr; config + events tests added.
 
 ## [0.6.0] - 2026-07-11
 

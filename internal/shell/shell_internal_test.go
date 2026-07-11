@@ -548,3 +548,56 @@ func TestAIUseRequiresArg(t *testing.T) {
 		t.Fatal("expected usage error with no model arg")
 	}
 }
+
+func TestCmdReportNoAIWritesMarkdown(t *testing.T) {
+	base := t.TempDir()
+	bus := events.NewBus()
+	app := &App{
+		Config: &config.Config{CasesPath: base},
+		Events: bus,
+		Cases:  cases.NewManager(base, bus, nil, nil),
+		Tools:  tools.NewRegistry(bus),
+		Runner: tools.NewRunner(bus),
+		Output: tools.NewOutputCapture(bus),
+	}
+	c, err := app.Cases.Create("c1")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	c, err = app.Cases.Open("c1")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := c.AppendEvidence(cases.EvidenceRecord{Op: "add", Name: "evil.exe", SHA256: "deadbeef", Size: 1024, Tags: []string{"malware"}}); err != nil {
+		t.Fatalf("evidence: %v", err)
+	}
+
+	// No AI configured, --no-ai guarantees deterministic output.
+	if err := app.cmdReport([]string{"--no-ai"}); err != nil {
+		t.Fatalf("cmdReport: %v", err)
+	}
+	out := filepath.Join(c.Path, "output", "report.md")
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	md := string(data)
+	for _, want := range []string{"# Incident Report: c1", "evil.exe", "## Evidence"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("report missing %q\n%s", want, md)
+		}
+	}
+	// A timeline event records the report generation.
+	if !reportGenerated(c) {
+		t.Error("expected report_generated timeline event")
+	}
+}
+
+func reportGenerated(c *cases.Case) bool {
+	for _, e := range c.Timeline() {
+		if e.Type == "report_generated" {
+			return true
+		}
+	}
+	return false
+}

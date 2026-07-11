@@ -44,7 +44,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.6.0"
+const Version = "0.7.0"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -317,6 +317,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdSleuthkit(args)
 	case "regripper":
 		return a.cmdRegRipper(args)
+	case "report":
+		return a.cmdReport(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -348,6 +350,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %ssandbox%s     manage sandboxes: create, run, shell, logs, report, cp, destroy, list\n", colorGreen, colorReset)
 	fmt.Printf("  %ssleuthkit%s     disk forensic analysis: fls, fsstat, icat, mmls, blkcalc, istat\n", colorGreen, colorReset)
 	fmt.Printf("  %sregripper%s    Windows registry hive analysis (auto-detect, -p plugin, --json)\n", colorGreen, colorReset)
+	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -711,6 +714,23 @@ func (a *App) cmdTimeline(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
 		return fmt.Errorf("no case is open")
+	}
+
+	// Handle "timeline build --auto" subcommand: correlate events into a narrative.
+	if len(args) > 0 && args[0] == "build" {
+		narr, err := c.Narrative()
+		if err != nil {
+			return err
+		}
+		outPath := filepath.Join(c.Path, "output", "narrative.md")
+		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+			return fmt.Errorf("narrative: create dir: %w", err)
+		}
+		if err := os.WriteFile(outPath, []byte(narr), 0644); err != nil {
+			return fmt.Errorf("narrative: write: %w", err)
+		}
+		fmt.Printf("%sNarrative written:%s %s\n", colorGreen, colorReset, outPath)
+		return nil
 	}
 
 	// Handle "timeline export" subcommand
@@ -1168,6 +1188,9 @@ func (a *App) cmdAI(args []string) error {
 		logAI("explain: "+output[:min(80, len(output))], "")
 		return a.AI.Explain(context.Background(), output, nil)
 
+	case "summarize":
+		return a.aiSummarize()
+
 	case "config":
 		return a.aiConfig(args[1:])
 
@@ -1245,6 +1268,7 @@ func (a *App) aiHelp() error {
 	fmt.Printf("  %sai analyze%s       summarize current case findings\n", colorGreen, colorReset)
 	fmt.Printf("  %sai suggest%s       recommend next investigation steps\n", colorGreen, colorReset)
 	fmt.Printf("  %sai explain <t>%s   explain tool output or concept\n", colorGreen, colorReset)
+	fmt.Printf("  %sai summarize%s     generate a case narrative\n", colorGreen, colorReset)
 	fmt.Printf("  %sai config%s        show AI configuration\n", colorGreen, colorReset)
 	fmt.Printf("  %sai models%s        list models the provider can serve\n", colorGreen, colorReset)
 	fmt.Printf("  %sai use <m>%s       switch active model (add --save to persist)\n", colorGreen, colorReset)
@@ -1353,6 +1377,125 @@ func humanSize(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// aiSummarize prints an AI-generated case narrative to stdout.
+func (a *App) aiSummarize() error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	if a.AI == nil {
+		return fmt.Errorf("AI not configured")
+	}
+	summary, err := a.AI.Summarize(context.Background(), c)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s[AI %s] Summary%s\n\n%s\n", colorCyan, a.AI.ProviderName(), colorReset, summary)
+	return nil
+}
+
+// cmdReport generates a full incident report for the current case.
+func (a *App) cmdReport(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+
+	opts := cases.ReportOptions{Format: cases.ReportMarkdown}
+	noAI := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--no-ai":
+			noAI = true
+		case "--format":
+			if i+1 < len(args) {
+				opts.Format = cases.ReportFormat(args[i+1])
+				i++
+			}
+		case "-o", "--output":
+			if i+1 < len(args) {
+				opts.Path = args[i+1]
+				i++
+			}
+		default:
+			if opts.Path == "" && !strings.HasPrefix(args[i], "-") {
+				opts.Path = args[i]
+			}
+		}
+	}
+
+	var summary string
+	if !noAI && a.AI != nil {
+		s, err := a.AI.Summarize(context.Background(), c)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s AI summary skipped: %v\n", colorYellow, colorReset, err)
+		} else {
+			summary = s
+		}
+	}
+
+	md, err := cases.BuildReport(c, summary)
+	if err != nil {
+		return err
+	}
+
+	// Determine output path.
+	outPath := opts.Path
+	if outPath == "" {
+		outPath = filepath.Join(c.Path, "output", "report.md")
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+		return fmt.Errorf("report: create output dir: %w", err)
+	}
+
+	// PDF: optional pandoc Docker; degrade to Markdown with a warning.
+	if opts.Format == cases.ReportPDF {
+		if d, perr := runPandoc(outPath, md); perr != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s PDF unavailable (%v); wrote Markdown instead\n", colorYellow, colorReset, perr)
+			outPath = strings.TrimSuffix(outPath, ".pdf") + ".md"
+		} else {
+			fmt.Printf("%sReport written:%s %s\n", colorGreen, colorReset, d)
+			if err := c.AppendEvent(cases.TimelineEvent{Type: "report_generated", Timestamp: time.Now().Format(time.RFC3339), Payload: map[string]any{"path": d, "format": "pdf"}}); err != nil {
+				fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+			}
+			return nil
+		}
+	}
+
+	if err := os.WriteFile(outPath, []byte(md), 0644); err != nil {
+		return fmt.Errorf("report: write: %w", err)
+	}
+	fmt.Printf("%sReport written:%s %s\n", colorGreen, colorReset, outPath)
+	if err := c.AppendEvent(cases.TimelineEvent{Type: "report_generated", Timestamp: time.Now().Format(time.RFC3339), Payload: map[string]any{"path": outPath, "format": "md"}}); err != nil {
+		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
+	}
+	return nil
+}
+
+// runPandoc converts Markdown to PDF via the pandoc Docker image, returning the
+// output path. It is best-effort: callers degrade to Markdown on any failure.
+func runPandoc(mdPath, md string) (string, error) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return "", fmt.Errorf("docker not available")
+	}
+	tmp := mdPath
+	if strings.HasSuffix(tmp, ".pdf") {
+		tmp = strings.TrimSuffix(tmp, ".pdf") + ".md"
+	}
+	if err := os.WriteFile(tmp, []byte(md), 0644); err != nil {
+		return "", err
+	}
+	pdfPath := strings.TrimSuffix(tmp, ".md") + ".pdf"
+	src := filepath.Base(tmp)
+	cmd := exec.Command("docker", "run", "--rm",
+		"-v", filepath.Dir(tmp)+":/data",
+		"pandoc/core", "pandoc", "/data/"+src, "-o", "/data/"+filepath.Base(pdfPath))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("%v: %s", err, out)
+	}
+	return pdfPath, nil
 }
 
 func min(a, b int) int {
@@ -1553,6 +1696,21 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 		short = short[:12]
 	}
 	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, short)
+
+	// Opt-in auto-AI analysis of the added evidence (non-blocking).
+	if a.AI != nil && a.Config.AI.AutoAnalyzeEvidence {
+		go func() {
+			analysis, err := a.AI.Summarize(context.Background(), c)
+			if err != nil {
+				return
+			}
+			_ = c.AppendEvent(cases.TimelineEvent{
+				Type:      "ai_response",
+				Timestamp: time.Now().Format(time.RFC3339),
+				Payload:   map[string]any{"trigger": "evidence_add", "name": name, "analysis": analysis},
+			})
+		}()
+	}
 	return nil
 }
 

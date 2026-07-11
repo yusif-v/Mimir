@@ -8,14 +8,15 @@ import (
 
 // AIConfig holds all AI-related configuration.
 type AIConfig struct {
-	Provider      string  `yaml:"provider" mapstructure:"provider"`
-	BaseURL       string  `yaml:"base_url" mapstructure:"base_url"`
-	APIKey        string  `yaml:"api_key" mapstructure:"api_key"`
-	Model         string  `yaml:"model" mapstructure:"model"`
-	MaxTokens     int     `yaml:"max_tokens" mapstructure:"max_tokens"`
-	Temperature   float64 `yaml:"temperature" mapstructure:"temperature"`
-	ContextWindow int     `yaml:"context_window" mapstructure:"context_window"`
-	Timeout       int     `yaml:"timeout" mapstructure:"timeout"`
+	Provider            string  `yaml:"provider" mapstructure:"provider"`
+	BaseURL             string  `yaml:"base_url" mapstructure:"base_url"`
+	APIKey              string  `yaml:"api_key" mapstructure:"api_key"`
+	Model               string  `yaml:"model" mapstructure:"model"`
+	MaxTokens           int     `yaml:"max_tokens" mapstructure:"max_tokens"`
+	Temperature         float64 `yaml:"temperature" mapstructure:"temperature"`
+	ContextWindow       int     `yaml:"context_window" mapstructure:"context_window"`
+	Timeout             int     `yaml:"timeout" mapstructure:"timeout"`
+	AutoAnalyzeEvidence bool    `yaml:"auto_analyze_evidence" mapstructure:"auto_analyze_evidence"`
 }
 
 // DefaultAIConfig returns sensible defaults.
@@ -65,6 +66,9 @@ func LoadAIConfig(cfg AIConfig) AIConfig {
 	}
 	if v := os.Getenv("MIMIR_AI_TIMEOUT"); v != "" {
 		fmt.Sscanf(v, "%d", &cfg.Timeout)
+	}
+	if v := os.Getenv("MIMIR_AI_AUTO_ANALYZE"); v != "" {
+		cfg.AutoAnalyzeEvidence = v == "true" || v == "1"
 	}
 	return cfg
 }

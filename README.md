@@ -81,6 +81,11 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 | `ai suggest` | Suggest next investigation steps |
 | `ai explain <tool-output>` | Explain a captured tool output |
 | `ai config` | Show the current AI provider/model configuration |
+| `ai models` | List models the active provider can serve |
+| `ai use <model> [--save]` | Switch the active model at runtime (--save persists) |
+| `ai summarize` | Generate a case narrative from timeline, evidence, and IOCs |
+| `report [path] [--format md|pdf] [--no-ai]` | Generate a full incident report for the current case |
+| `timeline build --auto` | Correlate case events into a phase-labeled narrative.md |
 | `clear` | Clear the screen |
 | `exit` / `quit` | Exit Mimir |
 
