@@ -13,8 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Evidence/IOC timeline appends no longer swallow write errors silently — disk failures are surfaced as warnings on stderr.
 
 ### Added
-- `internal/config`: test coverage for defaults, env-var overrides (MIMIR_HOME/MIMIR_CASES_PATH/MIMIR_LOG_LEVEL), merge precedence, and default-config round-trip.
-- `internal/events`: regression tests for targeted handler removal, last-handler cleanup, and unknown-ID no-op.
+- Modular AI provider registry (`internal/ai/registry.go`): providers self-register via `init()`, replacing the hardcoded switch. Unknown provider names fall back to the OpenAI-compatible factory.
+- `ai models` — lists models the active provider serves (Ollama `/api/tags`, OpenAI `/models`); Anthropic reports discovery unsupported.
+- `ai use <model> [--save]` — switches the active model at runtime; `--save` persists it to `config.yaml` via `config.Config.Save()`.
+- `config.Config.Save()` — marshals the live config back to disk.
+- Tests: provider registry (registration, case-insensitive lookup, fallback), `SetModel`, Ollama/OpenAI model parsing, unsupported-provider sentinel, `humanSize`, `ai use` switch + validation + arg checks.
 
 ## [0.6.0] - 2026-07-11
 

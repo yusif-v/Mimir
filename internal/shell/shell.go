@@ -1171,6 +1171,12 @@ func (a *App) cmdAI(args []string) error {
 	case "config":
 		return a.aiConfig(args[1:])
 
+	case "models":
+		return a.aiModels()
+
+	case "use":
+		return a.aiUse(args[1:])
+
 	default:
 		return a.aiHelp()
 	}
@@ -1240,7 +1246,9 @@ func (a *App) aiHelp() error {
 	fmt.Printf("  %sai suggest%s       recommend next investigation steps\n", colorGreen, colorReset)
 	fmt.Printf("  %sai explain <t>%s   explain tool output or concept\n", colorGreen, colorReset)
 	fmt.Printf("  %sai config%s        show AI configuration\n", colorGreen, colorReset)
-	fmt.Printf("\nProvider: %s%s%s\n", colorCyan, a.AI.ProviderName(), colorReset)
+	fmt.Printf("  %sai models%s        list models the provider can serve\n", colorGreen, colorReset)
+	fmt.Printf("  %sai use <m>%s       switch active model (add --save to persist)\n", colorGreen, colorReset)
+	fmt.Printf("\nProvider: %s%s%s   Model: %s%s%s\n", colorCyan, a.AI.ProviderName(), colorReset, colorCyan, a.AI.Model(), colorReset)
 	return nil
 }
 
@@ -1259,6 +1267,92 @@ func (a *App) aiConfig(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("usage: ai config (read-only, edit config.yaml to change)")
+}
+
+// aiModels lists the models the active provider can serve.
+func (a *App) aiModels() error {
+	models, err := a.AI.ListModels(context.Background())
+	if err != nil {
+		if err == ai.ErrModelDiscoveryUnsupported {
+			fmt.Printf("Model discovery is not supported by the %q provider.\n", a.AI.ProviderName())
+			fmt.Printf("Current model: %s%s%s\n", colorCyan, a.AI.Model(), colorReset)
+			return nil
+		}
+		return err
+	}
+	if len(models) == 0 {
+		fmt.Println("No models reported by the provider.")
+		return nil
+	}
+	current := a.AI.Model()
+	for _, m := range models {
+		marker := "  "
+		if m.Name == current {
+			marker = colorGreen + "* " + colorReset
+		}
+		if m.Size > 0 {
+			fmt.Printf("%s%-40s %s\n", marker, m.Name, humanSize(m.Size))
+		} else {
+			fmt.Printf("%s%s\n", marker, m.Name)
+		}
+	}
+	return nil
+}
+
+// aiUse switches the active model at runtime; --save persists it to config.yaml.
+func (a *App) aiUse(args []string) error {
+	var model string
+	save := false
+	for _, arg := range args {
+		if arg == "--save" {
+			save = true
+		} else if model == "" {
+			model = arg
+		}
+	}
+	if model == "" {
+		return fmt.Errorf("usage: ai use <model> [--save]")
+	}
+
+	// Validate against the provider's model list when discovery is available.
+	if models, err := a.AI.ListModels(context.Background()); err == nil {
+		found := false
+		for _, m := range models {
+			if m.Name == model {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("model %q not available from provider %q (run 'ai models' to list)", model, a.AI.ProviderName())
+		}
+	}
+
+	a.AI.SetModel(model)
+	a.Config.AI.Model = model
+	fmt.Printf("Active model: %s%s%s\n", colorCyan, model, colorReset)
+
+	if save {
+		if err := a.Config.Save(); err != nil {
+			return fmt.Errorf("model switched for this session, but save failed: %w", err)
+		}
+		fmt.Printf("Saved to %s\n", a.Config.ConfigPath())
+	}
+	return nil
+}
+
+// humanSize renders a byte count as a human-readable string.
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func min(a, b int) int {

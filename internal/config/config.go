@@ -115,6 +115,20 @@ func (c *Config) ConfigPath() string {
 	return filepath.Join(c.HomeDir, "config.yaml")
 }
 
+// Save writes the current configuration to ConfigPath(), creating the home
+// directory if needed. Used by runtime settings changes that opt into
+// persistence (e.g. `ai use <model> --save`).
+func (c *Config) Save() error {
+	if err := os.MkdirAll(c.HomeDir, 0755); err != nil {
+		return fmt.Errorf("config: create home dir: %w", err)
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("config: marshal: %w", err)
+	}
+	return os.WriteFile(c.ConfigPath(), data, 0644)
+}
+
 // WriteDefault writes a default config file to the given path.
 func WriteDefault(path string) error {
 	data, err := yaml.Marshal(DefaultConfig())

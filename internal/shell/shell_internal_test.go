@@ -1,11 +1,15 @@
 package shell
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/yusif-v/mimir/internal/ai"
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/catalog"
 	"github.com/yusif-v/mimir/internal/config"
@@ -476,5 +480,71 @@ func TestFilterTimeline(t *testing.T) {
 	// no filters → all
 	if len(filterTimeline(evs, nil, "")) != 3 {
 		t.Fatal("no filter should return all")
+	}
+}
+
+func TestHumanSize(t *testing.T) {
+	cases := []struct {
+		n    int64
+		want string
+	}{
+		{512, "512 B"},
+		{1024, "1.0 KB"},
+		{1929912432, "1.8 GB"},
+		{18253611008, "17.0 GB"},
+	}
+	for _, c := range cases {
+		if got := humanSize(c.n); got != c.want {
+			t.Errorf("humanSize(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+func TestAIUseSwitchesModelAndValidates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/tags" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{
+					{"name": "qwen2.5:3b"},
+					{"name": "sphinx:latest"},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	aiShell, err := ai.NewShell(ai.AIConfig{Provider: "ollama", Model: "qwen2.5:3b", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("NewShell: %v", err)
+	}
+	app := &App{AI: aiShell, Config: &config.Config{HomeDir: t.TempDir()}}
+
+	// Unknown model should be rejected (validation against provider list).
+	if err := app.aiUse([]string{"nonexistent:model"}); err == nil {
+		t.Fatal("expected rejection of unavailable model")
+	}
+	// Known model switches.
+	if err := app.aiUse([]string{"sphinx:latest"}); err != nil {
+		t.Fatalf("aiUse: %v", err)
+	}
+	if app.AI.Model() != "sphinx:latest" {
+		t.Errorf("model not switched: %q", app.AI.Model())
+	}
+	if app.Config.AI.Model != "sphinx:latest" {
+		t.Errorf("config model not updated: %q", app.Config.AI.Model)
+	}
+}
+
+func TestAIUseRequiresArg(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[]}`))
+	}))
+	defer srv.Close()
+	aiShell, _ := ai.NewShell(ai.AIConfig{Provider: "ollama", Model: "qwen2.5:3b", BaseURL: srv.URL})
+	app := &App{AI: aiShell, Config: &config.Config{HomeDir: t.TempDir()}}
+	if err := app.aiUse(nil); err == nil {
+		t.Fatal("expected usage error with no model arg")
 	}
 }

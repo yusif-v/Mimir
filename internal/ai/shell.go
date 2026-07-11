@@ -24,6 +24,21 @@ func (s *Shell) ProviderName() string {
 	return s.client.ProviderName()
 }
 
+// Model returns the active model.
+func (s *Shell) Model() string {
+	return s.client.Model()
+}
+
+// SetModel rebinds the active model on the live client.
+func (s *Shell) SetModel(model string) {
+	s.client.SetModel(model)
+}
+
+// ListModels returns the models the active provider can serve.
+func (s *Shell) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	return s.client.ListModels(ctx)
+}
+
 // Ask sends a free-form question to the LLM, optionally with case context.
 func (s *Shell) Ask(ctx context.Context, question string, messages []Message) error {
 	if messages == nil {

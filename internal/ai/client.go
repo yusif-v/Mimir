@@ -64,12 +64,10 @@ func NewClient(cfg AIConfig) (*Client, error) {
 	}
 
 	var p Provider
-	switch strings.ToLower(cfg.Provider) {
-	case "anthropic":
-		p = NewAnthropicProvider(cfg)
-	case "ollama":
-		p = NewOllamaProvider(cfg)
-	default:
+	if f, ok := lookup(cfg.Provider); ok {
+		p = f(cfg)
+	} else {
+		// Unknown provider name: assume an OpenAI-compatible endpoint.
 		p = NewOpenAIProvider(cfg)
 	}
 
@@ -95,6 +93,25 @@ func (c *Client) Stream(ctx context.Context, messages []Message, opts ProviderOp
 // ProviderName returns the name of the active provider.
 func (c *Client) ProviderName() string {
 	return c.provider.Name()
+}
+
+// Model returns the currently active model.
+func (c *Client) Model() string {
+	return c.model
+}
+
+// SetModel rebinds the active model on the live client without recreating it.
+func (c *Client) SetModel(model string) {
+	c.model = model
+}
+
+// ListModels asks the active provider what models it can serve. Providers that
+// do not implement ModelLister return ErrModelDiscoveryUnsupported.
+func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
+	if ml, ok := c.provider.(ModelLister); ok {
+		return ml.ListModels(ctx)
+	}
+	return nil, ErrModelDiscoveryUnsupported
 }
 
 // --- OpenAI-compatible provider ---
