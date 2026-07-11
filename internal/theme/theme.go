@@ -25,9 +25,9 @@ const (
 
 // Theme is a complete visual theme definition.
 type Theme struct {
-	Name        string       `yaml:"name"`
-	Description string       `yaml:"description"`
-	Prompt      PromptStyle  `yaml:"prompt"`
+	Name        string      `yaml:"name"`
+	Description string      `yaml:"description"`
+	Prompt      PromptStyle `yaml:"prompt"`
 	Layout      Layout      `yaml:"layout"`
 	Colors      ColorMap    `yaml:"colors"`
 	Segments    SegmentList `yaml:"segments"`
@@ -46,14 +46,14 @@ type Layout struct {
 
 // ColorMap holds the named color slots used by the prompt.
 type ColorMap struct {
-	User     Color `yaml:"user"`
-	Brand    Color `yaml:"brand"`
-	Case     Color `yaml:"case"`
-	Status   Color `yaml:"status"`
-	StatusOK Color `yaml:"status_ok"`
+	User      Color `yaml:"user"`
+	Brand     Color `yaml:"brand"`
+	Case      Color `yaml:"case"`
+	Status    Color `yaml:"status"`
+	StatusOK  Color `yaml:"status_ok"`
 	StatusErr Color `yaml:"status_err"`
-	Border   Color `yaml:"border"`
-	Dim      Color `yaml:"dim"`
+	Border    Color `yaml:"border"`
+	Dim       Color `yaml:"dim"`
 }
 
 // SegmentList is the ordered segments shown in the prompt line.
@@ -61,8 +61,8 @@ type SegmentList []Segment
 
 // Segment is one piece of the status line.
 type Segment struct {
-	Type  string `yaml:"type"` // "user" | "brand" | "case" | "status" | "custom"
-	Text  string `yaml:"text"` // only used for type=custom
+	Type  string `yaml:"type"`  // "user" | "brand" | "case" | "status" | "custom"
+	Text  string `yaml:"text"`  // only used for type=custom
 	Color Color  `yaml:"color"` // override color (optional)
 }
 
@@ -74,19 +74,19 @@ func DefaultTheme() Theme {
 		Prompt:      PromptStyleInline,
 		Layout: Layout{
 			Separator: " ",
-			LeftPad:  "",
-			RightPad: " ",
-			Marker:   "❯",
+			LeftPad:   "",
+			RightPad:  " ",
+			Marker:    "❯",
 		},
 		Colors: ColorMap{
-			User:     "green",
-			Brand:    "blue",
-			Case:     "yellow",
-			Status:   "dim",
-			StatusOK: "green",
+			User:      "green",
+			Brand:     "blue",
+			Case:      "yellow",
+			Status:    "dim",
+			StatusOK:  "green",
 			StatusErr: "red",
-			Border:   "dim",
-			Dim:      "dim",
+			Border:    "dim",
+			Dim:       "dim",
 		},
 		Segments: SegmentList{
 			{Type: "user"},
@@ -105,19 +105,19 @@ func KaliTheme() Theme {
 		Prompt:      PromptStyleTwoLine,
 		Layout: Layout{
 			Separator: " ",
-			LeftPad:  " ",
-			RightPad: " ",
-			Marker:   "❯",
+			LeftPad:   " ",
+			RightPad:  " ",
+			Marker:    "❯",
 		},
 		Colors: ColorMap{
-			User:     "cyan",
-			Brand:    "bright_cyan",
-			Case:     "white",
-			Status:   "dim",
-			StatusOK: "green",
+			User:      "cyan",
+			Brand:     "bright_cyan",
+			Case:      "white",
+			Status:    "dim",
+			StatusOK:  "green",
 			StatusErr: "red",
-			Border:   "cyan",
-			Dim:      "dim",
+			Border:    "cyan",
+			Dim:       "dim",
 		},
 		Segments: SegmentList{
 			{Type: "user"},
@@ -136,19 +136,19 @@ func MinimalTheme() Theme {
 		Prompt:      PromptStyleInline,
 		Layout: Layout{
 			Separator: " ",
-			LeftPad:  "",
-			RightPad: " ",
-			Marker:   ">",
+			LeftPad:   "",
+			RightPad:  " ",
+			Marker:    ">",
 		},
 		Colors: ColorMap{
-			User:     "white",
-			Brand:    "white",
-			Case:     "white",
-			Status:   "white",
-			StatusOK: "white",
+			User:      "white",
+			Brand:     "white",
+			Case:      "white",
+			Status:    "white",
+			StatusOK:  "white",
 			StatusErr: "white",
-			Border:   "white",
-			Dim:      "white",
+			Border:    "white",
+			Dim:       "white",
 		},
 		Segments: SegmentList{
 			{Type: "user"},
@@ -167,19 +167,19 @@ func NoColorTheme() Theme {
 		Prompt:      PromptStyleInline,
 		Layout: Layout{
 			Separator: " ",
-			LeftPad:  "",
-			RightPad: " ",
-			Marker:   "❯",
+			LeftPad:   "",
+			RightPad:  " ",
+			Marker:    "❯",
 		},
 		Colors: ColorMap{
-			User:     "",
-			Brand:    "",
-			Case:     "",
-			Status:   "",
-			StatusOK: "",
+			User:      "",
+			Brand:     "",
+			Case:      "",
+			Status:    "",
+			StatusOK:  "",
 			StatusErr: "",
-			Border:   "",
-			Dim:      "",
+			Border:    "",
+			Dim:       "",
 		},
 		Segments: SegmentList{
 			{Type: "user"},

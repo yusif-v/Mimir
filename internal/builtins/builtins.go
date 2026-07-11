@@ -917,8 +917,8 @@ func safeContext(s string, pos, radius int) string {
 
 // LNK file format constants
 const (
-	sigLNK        = "\x4C\x00\x00\x00" // LNK magic
-	guidCLSID     = "\x01\x14\x02\x00\x00\x00\x00\x00\xC0\x00\x00\x00\x00\x00\x00\x46"
+	sigLNK    = "\x4C\x00\x00\x00" // LNK magic
+	guidCLSID = "\x01\x14\x02\x00\x00\x00\x00\x00\xC0\x00\x00\x00\x00\x00\x00\x46"
 )
 
 func lnkparseTool(args []string) (string, error) {

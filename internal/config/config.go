@@ -20,15 +20,15 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	HomeDir     string    `yaml:"home_dir" mapstructure:"home_dir"`
-	CasesPath   string    `yaml:"cases_path" mapstructure:"cases_path"`
-	ToolsPath   string    `yaml:"tools_path" mapstructure:"tools_path"`
-	PluginsPath string    `yaml:"plugins_path" mapstructure:"plugins_path"`
-	CachePath   string    `yaml:"cache_path" mapstructure:"cache_path"`
-	LogPath     string    `yaml:"log_path" mapstructure:"log_path"`
-	LogFile     string    `yaml:"log_file" mapstructure:"log_file"`
-	HistoryPath string    `yaml:"history_path" mapstructure:"history_path"`
-	LogLevel    string    `yaml:"log_level" mapstructure:"log_level"`
+	HomeDir     string      `yaml:"home_dir" mapstructure:"home_dir"`
+	CasesPath   string      `yaml:"cases_path" mapstructure:"cases_path"`
+	ToolsPath   string      `yaml:"tools_path" mapstructure:"tools_path"`
+	PluginsPath string      `yaml:"plugins_path" mapstructure:"plugins_path"`
+	CachePath   string      `yaml:"cache_path" mapstructure:"cache_path"`
+	LogPath     string      `yaml:"log_path" mapstructure:"log_path"`
+	LogFile     string      `yaml:"log_file" mapstructure:"log_file"`
+	HistoryPath string      `yaml:"history_path" mapstructure:"history_path"`
+	LogLevel    string      `yaml:"log_level" mapstructure:"log_level"`
 	AI          ai.AIConfig `yaml:"ai" mapstructure:"ai"`
 }
 

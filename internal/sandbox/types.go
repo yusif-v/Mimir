@@ -10,9 +10,9 @@ import (
 type SandboxStatus string
 
 const (
-	SandboxCreated  SandboxStatus = "created"
-	SandboxRunning  SandboxStatus = "running"
-	SandboxStopped  SandboxStatus = "stopped"
+	SandboxCreated   SandboxStatus = "created"
+	SandboxRunning   SandboxStatus = "running"
+	SandboxStopped   SandboxStatus = "stopped"
 	SandboxDestroyed SandboxStatus = "destroyed"
 )
 
@@ -55,20 +55,20 @@ type Sandbox struct {
 
 // CaptureEvent represents a single captured event during sandbox execution.
 type CaptureEvent struct {
-	Timestamp string          `json:"timestamp"`
+	Timestamp string           `json:"timestamp"`
 	Type      CaptureEventType `json:"type"`
-	Details   string          `json:"details"`
+	Details   string           `json:"details"`
 }
 
 // AnalysisReport contains the full analysis results from a sandbox run.
 type AnalysisReport struct {
-	SandboxID       string             `json:"sandbox_id"`
-	StartedAt       string             `json:"started_at"`
-	FinishedAt      string             `json:"finished_at,omitempty"`
-	Events          []CaptureEvent     `json:"events"`
-	FileChanges     []FileChange       `json:"file_changes"`
-	Processes       []ProcessInfo      `json:"processes"`
-	NetworkAttempts []NetworkAttempt   `json:"network_attempts"`
+	SandboxID       string           `json:"sandbox_id"`
+	StartedAt       string           `json:"started_at"`
+	FinishedAt      string           `json:"finished_at,omitempty"`
+	Events          []CaptureEvent   `json:"events"`
+	FileChanges     []FileChange     `json:"file_changes"`
+	Processes       []ProcessInfo    `json:"processes"`
+	NetworkAttempts []NetworkAttempt `json:"network_attempts"`
 }
 
 // FileChange represents a filesystem change in the sandbox.

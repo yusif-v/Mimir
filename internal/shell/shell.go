@@ -257,8 +257,6 @@ func (a *App) promptMarker() string {
 	return colorize(marker, theme.ResolveColor(t.Colors.Brand)) + " "
 }
 
-
-
 func (a *App) dispatch(line string) error {
 	parts := splitArgs(line)
 	if len(parts) == 0 {

@@ -66,18 +66,23 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 | `plugin list` | List discovered plugins |
 | `plugin run <name>` | Run a plugin |
 | `plugin info <name>` | Show plugin details |
-|| `sandbox create --os <os> [--file <path>]` | Create a sandbox |
-|| `sandbox run <id>` | Run target file in sandbox |
-|| `sandbox shell <id>` | Open interactive shell in sandbox |
-|| `sandbox logs <id>` | View captured events |
-|| `sandbox report <id>` | View analysis report |
-|| `sandbox cp <file> <id>` | Copy file into sandbox |
-|| `sandbox destroy <id>` | Destroy a sandbox |
-||| `sandbox list` | List active sandboxes |
-||| `sleuthkit <tool> [args]` | Disk forensic analysis (fls, fsstat, icat, mmls, blkcalc, istat) |
-||| `regripper <hive> [-p plugin] [--json]` | Windows registry hive analysis |
-|| `clear` | Clear the screen |
-|| `exit` / `quit` | Exit Mimir |
+| `sandbox create --os <os> [--file <path>]` | Create a sandbox |
+| `sandbox run <id>` | Run target file in sandbox |
+| `sandbox shell <id>` | Open interactive shell in sandbox |
+| `sandbox logs <id>` | View captured events |
+| `sandbox report <id>` | View analysis report |
+| `sandbox cp <file> <id>` | Copy file into sandbox |
+| `sandbox destroy <id>` | Destroy a sandbox |
+| `sandbox list` | List active sandboxes |
+| `sleuthkit <tool> [args]` | Disk forensic analysis (fls, fsstat, icat, mmls, blkcalc, istat) |
+| `regripper <hive> [-p plugin] [--json]` | Windows registry hive analysis |
+| `ai ask <question>` | Ask the configured LLM a question with case context |
+| `ai analyze` | Analyze the current case (timeline, evidence, IOCs) |
+| `ai suggest` | Suggest next investigation steps |
+| `ai explain <tool-output>` | Explain a captured tool output |
+| `ai config` | Show the current AI provider/model configuration |
+| `clear` | Clear the screen |
+| `exit` / `quit` | Exit Mimir |
 
 ## Tools
 

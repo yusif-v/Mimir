@@ -300,7 +300,7 @@ func (p *OllamaProvider) Complete(ctx context.Context, messages []Message, opts 
 		"stream":   false,
 		"options": map[string]any{
 			"temperature": opts.Temperature,
-			"num_predict":  opts.MaxTokens,
+			"num_predict": opts.MaxTokens,
 		},
 	}
 	data, err := json.Marshal(body)
@@ -340,7 +340,7 @@ func (p *OllamaProvider) Stream(ctx context.Context, messages []Message, opts Pr
 		"stream":   true,
 		"options": map[string]any{
 			"temperature": opts.Temperature,
-			"num_predict":  opts.MaxTokens,
+			"num_predict": opts.MaxTokens,
 		},
 	}
 	data, err := json.Marshal(body)

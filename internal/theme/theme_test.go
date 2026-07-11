@@ -105,9 +105,9 @@ func TestMinimalTheme(t *testing.T) {
 func TestNoColorTheme(t *testing.T) {
 	th := NoColorTheme()
 	for k, v := range map[string]Color{
-		"User": th.Colors.User,
+		"User":  th.Colors.User,
 		"Brand": th.Colors.Brand,
-		"Case": th.Colors.Case,
+		"Case":  th.Colors.Case,
 	} {
 		if v != "" {
 			t.Errorf("no-color theme %s should be empty, got %q", k, v)

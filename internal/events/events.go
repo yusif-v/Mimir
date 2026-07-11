@@ -86,12 +86,12 @@ func (e Event) String() string {
 
 // Names for built-in events.
 const (
-	CaseCreated = "case.created"
-	CaseOpened  = "case.opened"
-	CaseClosed  = "case.closed"
-	ToolStarted = "tool.started"
-	ToolFinished = "tool.finished"
-	ToolError    = "tool.error"
+	CaseCreated    = "case.created"
+	CaseOpened     = "case.opened"
+	CaseClosed     = "case.closed"
+	ToolStarted    = "tool.started"
+	ToolFinished   = "tool.finished"
+	ToolError      = "tool.error"
 	OutputCaptured = "output.captured"
-	CommandRun   = "command.run"
+	CommandRun     = "command.run"
 )

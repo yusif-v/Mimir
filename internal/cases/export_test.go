@@ -17,7 +17,7 @@ func TestExportTimelineCSV(t *testing.T) {
 		events: []TimelineEvent{
 			{
 				Type:      "case_opened",
-			Timestamp: "2025-01-01T10:00:00Z",
+				Timestamp: "2025-01-01T10:00:00Z",
 				Payload:   map[string]any{},
 			},
 			{

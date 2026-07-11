@@ -48,7 +48,7 @@ func (s *Shell) Analyze(ctx context.Context, messages []Message) error {
 		messages = []Message{}
 	}
 	messages = append(messages, Message{
-		Role: RoleUser,
+		Role:    RoleUser,
 		Content: "Analyze the case data above. Summarize findings, flag suspicious items, and identify gaps.",
 	})
 	return s.complete(ctx, messages, true)
@@ -60,7 +60,7 @@ func (s *Shell) Suggest(ctx context.Context, messages []Message) error {
 		messages = []Message{}
 	}
 	messages = append(messages, Message{
-		Role: RoleUser,
+		Role:    RoleUser,
 		Content: "Based on the case data, what are the recommended next investigation steps? Be specific and actionable.",
 	})
 	return s.complete(ctx, messages, true)

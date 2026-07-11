@@ -47,8 +47,8 @@ func (a *API) FireHook(name string, evt events.Event) {
 
 // Manager handles plugin discovery and loading.
 type Manager struct {
-	api      *API
-	plugins  map[string]*Plugin
+	api     *API
+	plugins map[string]*Plugin
 }
 
 // NewManager creates a new plugin manager.
