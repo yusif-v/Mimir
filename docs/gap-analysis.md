@@ -136,3 +136,22 @@ P2 (maturity):
 > Note: G2/G5/G6 are the same root cause — the dedicated `volatility`
 > command duplicates capture logic that belongs in the sandbox runner. Refactor
 > the capture into `runtime.RunTarget`/`Exec` so it's uniform.
+
+## 5. Status (resolved)
+
+| Gap | Version | How |
+|-----|---------|-----|
+| G1  | v0.7.3 | SleuthKit ENTRYPOINT passthrough → icat/fsstat/istat/mmls/blkcalc run |
+| G2/G6 | v0.7.3 | `sandbox run -- <tool>` appends `tool_run` + auto-IOC via shared `captureInto` |
+| G4  | v0.7.4 | `evidence classify [name]` + auto-suggestion on `evidence add` (ext + magic) |
+| G7  | v0.7.4 | `ioc diff <a> <b>` — added/removed/shared indicator sets |
+| G8  | v0.7.4 | `networkHints` for zeek conn.log / tshark `-T fields` (ip/domain/url) in `captureInto` |
+| G9  | present | `install` already auto-builds the Docker image when Docker is reachable |
+| G10 | v0.7.4 | `volatility ... --offline` passes `-u` (no symbol download) |
+| G11 | present | readline completer already completes tool/plugin/case names (`run`/`use`/`install`/`build`) |
+
+### Remaining
+- **G3** formal `export` provenance (hash manifest + DFXML sidecar) — `export` already does tar.gz + JSON; no sidecar yet.
+- **G5** (timeline auto-correlation across all tools) — partially covered by G2/G6; no cross-tool correlation.
+- **G12** `correlate` command crossing memory + disk + network IOCs into one graph.
+

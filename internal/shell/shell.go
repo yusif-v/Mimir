@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,6 +33,9 @@ import (
 	"github.com/yusif-v/mimir/internal/ui"
 )
 
+// reIP matches an IPv4 address (used by networkHints for zeek conn logs).
+var reIP = regexp.MustCompile(`\b(?:25[0-5]|2[0-4]\d|1?\d?\d)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\.(?:25[0-5]|2[0-4]\d|1?\d?\d)\b`)
+
 // ANSI color codes
 const (
 	colorReset  = "\033[0m"
@@ -44,7 +48,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.7.3"
+const Version = "0.7.4"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -338,9 +342,9 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
-	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify\n", colorGreen, colorReset)
+	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify, classify [name]\n", colorGreen, colorReset)
 	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N, export [path] [--format csv|json])\n", colorGreen, colorReset)
-	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name>\n", colorGreen, colorReset)
+	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name> | ioc diff <a> <b>\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	fmt.Printf("  %ssearch%s     find cases matching a query across all cases; --in-output searches tool output\n", colorGreen, colorReset)
 	fmt.Printf("  %sgrep%s       search tool output (alias for search --in-output)\n", colorGreen, colorReset)
@@ -353,7 +357,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %ssleuthkit%s     disk forensic analysis: fls, fsstat, icat, mmls, blkcalc, istat\n", colorGreen, colorReset)
 	fmt.Printf("  %sregripper%s    Windows registry hive analysis (auto-detect, -p plugin, --json)\n", colorGreen, colorReset)
 	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
-	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [args...]\n", colorGreen, colorReset)
+	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [--offline] [args...]\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -823,6 +827,9 @@ func (a *App) cmdIOC(args []string) error {
 	if len(args) == 0 {
 		return a.iocList()
 	}
+	if args[0] == "diff" {
+		return a.cmdIOCDiff(args[1:])
+	}
 	c := a.Cases.Current()
 	var data []byte
 	var source string
@@ -875,6 +882,59 @@ func (a *App) cmdIOC(args []string) error {
 			fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
 		}
 		fmt.Printf("→ %d indicators tracked\n", len(inds))
+	}
+	return nil
+}
+
+// cmdIOCDiff compares the indicator sets extracted from two sources
+// (output files or raw text) and reports what is added, removed, or
+// shared. Useful for diffing two memory snapshots or two tool runs
+// (G7 in docs/gap-analysis.md).
+func (a *App) cmdIOCDiff(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: ioc diff <fileA> <fileB>  (compare extracted indicator sets)")
+	}
+	read := func(p string) (map[string]bool, error) {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil, fmt.Errorf("read %q: %w", p, err)
+		}
+		set := map[string]bool{}
+		for _, ind := range ioc.Extract(b) {
+			set[ind.Type+":"+ind.Value] = true
+		}
+		return set, nil
+	}
+	aSet, err := read(args[0])
+	if err != nil {
+		return err
+	}
+	bSet, err := read(args[1])
+	if err != nil {
+		return err
+	}
+	var added, removed, shared []string
+	for k := range aSet {
+		if bSet[k] {
+			shared = append(shared, k)
+		} else {
+			removed = append(removed, k)
+		}
+	}
+	for k := range bSet {
+		if !aSet[k] {
+			added = append(added, k)
+		}
+	}
+	fmt.Printf("%sΔ between %s and %s%s\n", colorCyan, args[0], args[1], colorReset)
+	fmt.Printf("  %sadded (only in B):%s   %d\n", colorGreen, colorReset, len(added))
+	fmt.Printf("  %sremoved (only in A):%s %d\n", colorYellow, colorReset, len(removed))
+	fmt.Printf("  %sshared:%s            %d\n", colorBlue, colorReset, len(shared))
+	for _, k := range added {
+		fmt.Printf("    + %s\n", k)
+	}
+	for _, k := range removed {
+		fmt.Printf("    - %s\n", k)
 	}
 	return nil
 }
@@ -1634,8 +1694,10 @@ func (a *App) cmdEvidence(args []string) error {
 		return a.evidenceTag(c, args[1:])
 	case "verify":
 		return a.evidenceVerify(c, args[1:])
+	case "classify":
+		return a.evidenceClassify(c, args[1:])
 	default:
-		return fmt.Errorf("usage: evidence [add <path> [--tag a,b] | tag <name> <tag>... | verify [name]]")
+		return fmt.Errorf("usage: evidence [add <path> [--tag a,b] | tag <name> <tag>... | verify [name] | classify [name]]")
 	}
 }
 
@@ -1706,6 +1768,11 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	}
 	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, short)
 
+	// Low-friction tool suggestion (G4): point the analyst at the right tool.
+	if sug := suggestTool(filepath.Join(c.Path, "evidence", name)); len(sug) > 0 {
+		fmt.Printf("%ssuggested tool(s):%s %s\n", colorDim, colorReset, strings.Join(sug, ", "))
+	}
+
 	// Opt-in auto-AI analysis of the added evidence (non-blocking).
 	if a.AI != nil && a.Config.AI.AutoAnalyzeEvidence {
 		go func() {
@@ -1775,6 +1842,79 @@ func (a *App) evidenceVerify(c *cases.Case, args []string) error {
 	if !ok {
 		return fmt.Errorf("evidence verification found problems")
 	}
+	return nil
+}
+
+// suggestTool maps an evidence file to the Mimir tool(s) best suited to
+// analyze it, by extension + magic bytes. Used by `evidence classify` and
+// surfaced automatically on `evidence add` to reduce analyst friction.
+func suggestTool(path string) []string {
+	name := strings.ToLower(filepath.Base(path))
+	lower := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lower, ".raw"), strings.HasSuffix(lower, ".mem"),
+		strings.Contains(lower, "dump"), strings.Contains(lower, "memory"):
+		return []string{"volatility"}
+	case strings.HasSuffix(lower, ".hive"), strings.Contains(name, "ntuser"),
+		strings.Contains(name, "system"), strings.Contains(name, "software"),
+		strings.Contains(name, "sam"):
+		return []string{"regripper"}
+	case strings.HasSuffix(lower, ".dd"), strings.HasSuffix(lower, ".img"),
+		strings.HasSuffix(lower, ".e01"), strings.HasSuffix(lower, ".vmdk"),
+		strings.HasSuffix(lower, ".raw") == false && (strings.Contains(lower, "disk") || strings.Contains(name, "image")):
+		return []string{"sleuthkit"}
+	case strings.HasSuffix(lower, ".pcap"), strings.HasSuffix(lower, ".pcapng"):
+		return []string{"tshark", "zeek"}
+	case strings.HasSuffix(lower, ".evt"), strings.HasSuffix(lower, ".evtx"):
+		return []string{"chainsaw"}
+	case strings.HasSuffix(lower, ".doc"), strings.HasSuffix(lower, ".docm"),
+		strings.HasSuffix(lower, ".xls"), strings.HasSuffix(lower, ".xlsm"),
+		strings.HasSuffix(lower, ".ppt"), strings.HasSuffix(lower, ".pptm"),
+		strings.HasSuffix(lower, ".rtf"), strings.HasSuffix(lower, ".docx"),
+		strings.HasSuffix(lower, ".xlsx"), strings.HasSuffix(lower, ".pptx"):
+		return []string{"oletools"}
+	case strings.HasSuffix(lower, ".lnk"):
+		return []string{"builtin: lnkparse"}
+	case strings.HasSuffix(lower, ".exe"), strings.HasSuffix(lower, ".dll"),
+		strings.HasSuffix(lower, ".sys"):
+		return []string{"capa", "builtin: peinfo"}
+	case strings.HasSuffix(lower, ".yar"), strings.HasSuffix(lower, ".yara"):
+		return []string{"yara"}
+	}
+	// Magic-byte fallback.
+	if data, err := os.ReadFile(path); err == nil && len(data) >= 4 {
+		if bytes.HasPrefix(data, []byte("MZ")) {
+			return []string{"capa", "builtin: peinfo"}
+		}
+		if bytes.HasPrefix(data, []byte("OLE")) {
+			return []string{"oletools"}
+		}
+	}
+	return nil
+}
+
+func (a *App) evidenceClassify(c *cases.Case, args []string) error {
+	name := ""
+	if len(args) > 0 {
+		name = args[0]
+	}
+	var path string
+	if name == "" {
+		evs := c.Evidence()
+		if len(evs) == 0 {
+			return fmt.Errorf("no evidence to classify — add a file first")
+		}
+		path = filepath.Join(c.Path, "evidence", evs[len(evs)-1].Name)
+		name = evs[len(evs)-1].Name
+	} else {
+		path = filepath.Join(c.Path, "evidence", name)
+	}
+	sug := suggestTool(path)
+	if len(sug) == 0 {
+		fmt.Printf("%s%s%s — no specific tool suggestion (generic analysis: ioc, search).\n", colorCyan, name, colorReset)
+		return nil
+	}
+	fmt.Printf("%s%s%s → suggested tool(s): %s\n", colorCyan, name, colorReset, strings.Join(sug, ", "))
 	return nil
 }
 
@@ -2014,6 +2154,22 @@ func captureInto(c *cases.Case, tool, command, dump, out string) error {
 			}
 		}
 	}
+
+	// Network tool-aware hints (zeek conn logs / tshark -T fields):
+	// surface src/dst hosts + URIs the generic regex would miss.
+	lowCmd := strings.ToLower(command)
+	if strings.Contains(lowCmd, "zeek") || strings.Contains(lowCmd, "tshark") {
+		for _, h := range networkHints(command, out) {
+			if err := c.AppendIOC(cases.IOCRecord{
+				Type:   h.typ,
+				Value:  h.val,
+				Source: tool + ":" + command + dumpSuffix(dump),
+				Time:   now,
+			}); err != nil {
+				return fmt.Errorf("append net-hint: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -2023,4 +2179,43 @@ func dumpSuffix(dump string) string {
 		return ""
 	}
 	return " (" + dump + ")"
+}
+
+// volNetHint is a network indicator extracted from zeek/tshark output.
+type volNetHint struct {
+	typ string
+	val string
+}
+
+// networkHints extracts network indicators the generic IOC regex
+// would miss: zeek conn.log src/dst hosts + tshark -T fields
+// (uri / http.host / dns.qry.name). Returns typed indicators.
+func networkHints(command, out string) []volNetHint {
+	var hints []volNetHint
+	for _, line := range strings.Split(out, "\n") {
+		t := strings.TrimSpace(line)
+		// zeek conn.log: tab-separated, fields include src/dst IP + ports.
+		if strings.Contains(t, "	") {
+			for _, f := range strings.Split(t, "	") {
+				if reIP.MatchString(f) {
+					hints = append(hints, volNetHint{typ: "ip", val: f})
+				}
+			}
+			continue
+		}
+		// tshark -T fields -e http.host / -e dns.qry.name / -e http.request.uri
+		if strings.HasPrefix(t, "http.host") || strings.HasPrefix(t, "dns.qry.name") {
+			parts := strings.SplitN(t, " ", 2)
+			if len(parts) == 2 && parts[1] != "" {
+				hints = append(hints, volNetHint{typ: "domain", val: strings.TrimSpace(parts[1])})
+			}
+		}
+		if strings.HasPrefix(t, "http.request.uri") {
+			parts := strings.SplitN(t, " ", 2)
+			if len(parts) == 2 && parts[1] != "" {
+				hints = append(hints, volNetHint{typ: "url", val: strings.TrimSpace(parts[1])})
+			}
+		}
+	}
+	return hints
 }

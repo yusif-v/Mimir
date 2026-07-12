@@ -1,7 +1,9 @@
 package shell
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -738,5 +740,99 @@ func TestCaptureIntoVolatilityHints(t *testing.T) {
 	}
 	if !gotCmd {
 		t.Error("expected volatility command hint from captureInto")
+	}
+}
+
+func TestSuggestToolByExtension(t *testing.T) {
+	cases := []struct {
+		path string
+		want string // substring expected in suggestions
+	}{
+		{"memory.raw", "volatility"},
+		{"SYSTEM.hive", "regripper"},
+		{"disk.dd", "sleuthkit"},
+		{"capture.pcapng", "tshark"},
+		{"security.evtx", "chainsaw"},
+		{"malware.exe", "capa"},
+		{"doc.docm", "oletools"},
+		{"link.lnk", "lnkparse"},
+	}
+	for _, tc := range cases {
+		got := suggestTool(tc.path)
+		if len(got) == 0 {
+			t.Errorf("%s: expected a suggestion, got none", tc.path)
+			continue
+		}
+		var matched bool
+		for _, g := range got {
+			if strings.Contains(g, tc.want) {
+				matched = true
+			}
+		}
+		if !matched {
+			t.Errorf("%s: want %q in %v", tc.path, tc.want, got)
+		}
+	}
+}
+
+func TestNetworkHintsFromTshark(t *testing.T) {
+	out := "http.host example.com\ndns.qry.name evil.test\nhttp.request.uri /payload.bin\n1.2.3.4	5.6.7.8	443"
+	hints := networkHints("tshark -T fields", out)
+	var hasDomain, hasURL, hasIP bool
+	for _, h := range hints {
+		switch h.typ {
+		case "domain":
+			hasDomain = true
+		case "url":
+			hasURL = true
+		case "ip":
+			if h.val == "1.2.3.4" || h.val == "5.6.7.8" {
+				hasIP = true
+			}
+		}
+	}
+	if !hasDomain || !hasURL || !hasIP {
+		t.Errorf("networkHints missed expected indicators: %+v", hints)
+	}
+}
+
+func TestIOCDiffAddedRemoved(t *testing.T) {
+	app := newTestApp(t)
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "a.txt")
+	bPath := filepath.Join(dir, "b.txt")
+	os.WriteFile(aPath, []byte("192.168.1.1\n1.2.3.4\n"), 0644)
+	os.WriteFile(bPath, []byte("1.2.3.4\n9.9.9.9\n"), 0644)
+
+	// Capture os.Stdout (cmdIOCDiff prints there, like the other commands).
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	runErr := app.cmdIOCDiff([]string{aPath, bPath})
+	w.Close()
+	os.Stdout = old
+	if runErr != nil {
+		t.Fatalf("cmdIOCDiff: %v", runErr)
+	}
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	s := buf.String()
+	if !strings.Contains(s, "added (only in B):") {
+		t.Errorf("expected added line, got:\n%s", s)
+	}
+	if !strings.Contains(s, "removed (only in A):") {
+		t.Errorf("expected removed line, got:\n%s", s)
+	}
+	if !strings.Contains(s, "shared:") {
+		t.Errorf("expected shared line, got:\n%s", s)
+	}
+	if !strings.Contains(s, "+ ipv4:9.9.9.9") {
+		t.Errorf("expected + ipv4:9.9.9.9, got:\n%s", s)
+	}
+	if !strings.Contains(s, "- ipv4:192.168.1.1") {
+		t.Errorf("expected - ipv4:192.168.1.1, got:\n%s", s)
 	}
 }

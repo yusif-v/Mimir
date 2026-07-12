@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.3] - 2026-07-11
+## [0.7.4] - 2026-07-11
+
+### Added (medium/low gaps from docs/gap-analysis.md)
+- **G4** `evidence classify [name]` suggests the right tool by extension + magic bytes (volatility/regripper/sleuthkit/tshark/zeek/chainsaw/oletools/capa/lnkparse). `evidence add` now auto-prints the suggestion.
+- **G7** `ioc diff <a> <b>` compares extracted indicator sets (added / removed / shared) — for diffing two memory snaps or two tool runs.
+- **G8** zeek/tshark output now yields network IOCs (conn.log src/dst IPs, tshark `-T fields` http.host / dns.qry.name / http.request.uri) via `networkHints` in the shared capture path.
+- **G10** `volatility <plugin> --offline` passes `-u` (no symbol download) for airgapped/cached analysis.
+
+### Tests
+- `suggestTool` per-extension; `networkHints` from tshark fields; `ioc diff` added/removed/shared.
+
+### Notes
+- G9 (`install` auto-build) and G11 (tab-completion for tool names) were already present — confirmed, no change needed. Remaining: G3 (export sidecar), G5 (cross-tool timeline correlation), G12 (`correlate` graph).
 
 ### Fixed
 - SleuthKit template ENTRYPOINT now passthroughs the tool name, so `icat`/`fsstat`/`istat`/`mmls`/`blkcalc` (and all Sleuth Kit binaries) run — previously only `fls` worked (bare `["fls"]` ENTRYPOINT prependend `fls` to every arg).

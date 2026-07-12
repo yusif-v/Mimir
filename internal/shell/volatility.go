@@ -34,26 +34,30 @@ func (a *App) cmdVolatility(args []string) error {
 		return fmt.Errorf("no case open — run 'case -o <name>' first")
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: volatility <plugin> [-f <dump>] [args...]")
+		return fmt.Errorf("usage: volatility <plugin> [-f <dump>] [--offline] [args...]")
 	}
 
-	// Split out -f <dump> if present; the rest is the vol plugin + args.
+	// Split out -f <dump> and --offline if present; the rest is the vol plugin + args.
 	pluginArgs := args
 	var dumpName string
-	for i := 0; i < len(pluginArgs); i++ {
-		if pluginArgs[i] == "-f" && i+1 < len(pluginArgs) {
+	offline := false
+	for i := 0; i < len(pluginArgs); {
+		switch {
+		case pluginArgs[i] == "-f" && i+1 < len(pluginArgs):
 			dumpName = pluginArgs[i+1]
 			pluginArgs = append(pluginArgs[:i], pluginArgs[i+2:]...)
-			break
-		}
-		if strings.HasPrefix(pluginArgs[i], "-f=") {
+		case strings.HasPrefix(pluginArgs[i], "-f="):
 			dumpName = strings.TrimPrefix(pluginArgs[i], "-f=")
 			pluginArgs = append(pluginArgs[:i], pluginArgs[i+1:]...)
-			break
+		case pluginArgs[i] == "--offline":
+			offline = true
+			pluginArgs = append(pluginArgs[:i], pluginArgs[i+1:]...)
+		default:
+			i++
 		}
 	}
 	if len(pluginArgs) == 0 {
-		return fmt.Errorf("usage: volatility <plugin> [-f <dump>] [args...]")
+		return fmt.Errorf("usage: volatility <plugin> [-f <dump>] [--offline] [args...]")
 	}
 
 	dumpPath, err := resolveDump(c, dumpName)
@@ -76,6 +80,9 @@ func (a *App) cmdVolatility(args []string) error {
 		volImage, "vol",
 	}
 	dockerArgs = append(dockerArgs, pluginArgs...)
+	if offline {
+		dockerArgs = append(dockerArgs, "-u") // no symbol download (airgapped/cached)
+	}
 	dockerArgs = append(dockerArgs, "-f", containerPath)
 
 	cmd := exec.Command("docker", dockerArgs...)
