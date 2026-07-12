@@ -3,6 +3,8 @@ package casearchive
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,5 +80,61 @@ func TestImportRejectsZipSlip(t *testing.T) {
 	// And confirm nothing was written outside dest
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dest), "escape.txt")); err == nil {
 		t.Fatal("zip-slip wrote a file outside the target dir")
+	}
+}
+
+func TestExportFullProvenance(t *testing.T) {
+	base := t.TempDir()
+	mgr := cases.NewManager(base, events.NewBus(), nil, nil)
+	c, err := mgr.Create("p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(c.Path, "evidence", "a.bin"), []byte("abc"), 0644)
+	_ = c.AppendIOC(cases.IOCRecord{Type: "ipv4", Value: "1.2.3.4", Source: "volatility:vol windows.netscan"})
+	_ = c.AppendEvent(cases.TimelineEvent{Type: "tool_run", Timestamp: "2026-07-12T00:00:00Z", Payload: map[string]any{"tool": "volatility", "command": "vol windows.netscan"}})
+
+	out := filepath.Join(t.TempDir(), "p1.tar.gz")
+	if err := ExportFull(c, out, true, "0.7.5"); err != nil {
+		t.Fatalf("ExportFull: %v", err)
+	}
+
+	// Read the manifest back out of the archive.
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, _ := gzip.NewReader(f)
+	tr := tar.NewReader(gz)
+	var man Manifest
+	found := false
+	for {
+		hdr, e := tr.Next()
+		if e != nil {
+			break
+		}
+		if filepath.Base(hdr.Name) == "manifest.json" {
+			b, _ := io.ReadAll(tr)
+			if err := json.Unmarshal(b, &man); err != nil {
+				t.Fatalf("unmarshal manifest: %v", err)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("manifest.json not found in archive")
+	}
+	if man.Mimir != "0.7.5" {
+		t.Errorf("want mimir_version 0.7.5, got %q", man.Mimir)
+	}
+	if len(man.Indicators) != 1 || man.Indicators[0].Value != "1.2.3.4" {
+		t.Errorf("expected 1 indicator 1.2.3.4, got %+v", man.Indicators)
+	}
+	if len(man.ToolRuns) != 1 {
+		t.Errorf("expected 1 tool run, got %+v", man.ToolRuns)
+	}
+	if len(man.Files) == 0 {
+		t.Error("expected full file hash manifest, got empty")
 	}
 }

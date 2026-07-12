@@ -362,7 +362,7 @@ func dedupeIOCs(in []IOC) []IOC {
 	seen := map[string]bool{}
 	var out []IOC
 	for _, i := range in {
-		k := i.Type + "\x00" + i.Value
+		k := i.Type + "\x00" + i.Value + "\x00" + i.Source
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, i)

@@ -149,9 +149,10 @@ P2 (maturity):
 | G9  | present | `install` already auto-builds the Docker image when Docker is reachable |
 | G10 | v0.7.4 | `volatility ... --offline` passes `-u` (no symbol download) |
 | G11 | present | readline completer already completes tool/plugin/case names (`run`/`use`/`install`/`build`) |
+| G3  | v0.7.5 | `export --provenance` writes full file hash manifest + tool runs + indicators into `manifest.json` |
+| G5  | v0.7.5 | `timeline correlate` — groups tool runs by tool + indicator-by-type summary |
+| G12 | v0.7.5 | `correlate [--dot]` — cross memory/disk/network IOC graph; flags cross-domain indicators |
 
-### Remaining
-- **G3** formal `export` provenance (hash manifest + DFXML sidecar) — `export` already does tar.gz + JSON; no sidecar yet.
-- **G5** (timeline auto-correlation across all tools) — partially covered by G2/G6; no cross-tool correlation.
-- **G12** `correlate` command crossing memory + disk + network IOCs into one graph.
+### Status
+**All gaps resolved** (v0.6.0 → v0.7.5). The only optional follow-up is a strict DFXML sidecar format (the provenance manifest already covers hash + tool + indicator integrity; DFXML is a format preference, not a missing capability).
 

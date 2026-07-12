@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.4] - 2026-07-11
+## [0.7.5] - 2026-07-12
+
+### Added (final gap-analysis gaps: G3, G5, G12)
+- **G3** `export --provenance` writes a full provenance `manifest.json` (hash of every archived file + Mimir version + tool runs + extracted indicators) so a bundle is self-describing and verifiable.
+- **G5** `timeline correlate` — groups tool runs by tool and shows an indicator-by-type summary (cross-tool view of how the case was built).
+- **G12** `correlate [--dot]` — cross memory/disk/network IOC graph; classifies each indicator by source domain and flags cross-domain indicators (same artifact seen via 2+ tools). `--dot` emits a Graphviz digraph.
+- `correlate` registered as a top-level command (tab-completion added).
+
+### Changed
+- IOC dedupe now keys on (type, value, source) instead of (type, value), so the same indicator found by multiple tools is retained — required for cross-domain correlation (G12).
+
+### Tests
+- `ExportFull` manifest provenance; `timeline correlate` groups by tool; `correlate` flags cross-domain IOCs.
+
+### Notes
+- Closes every gap in `docs/gap-analysis.md`. Only optional follow-up: a strict DFXML sidecar format (provenance manifest already covers integrity).
 
 ### Added (medium/low gaps from docs/gap-analysis.md)
 - **G4** `evidence classify [name]` suggests the right tool by extension + magic bytes (volatility/regripper/sleuthkit/tshark/zeek/chainsaw/oletools/capa/lnkparse). `evidence add` now auto-prints the suggestion.

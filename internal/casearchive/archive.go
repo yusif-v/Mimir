@@ -21,11 +21,58 @@ type Manifest struct {
 	Name     string            `json:"name"`
 	Exported string            `json:"exported"`
 	Evidence map[string]string `json:"evidence_sha256"`
+
+	// Provenance (G3): full file hash manifest + tool/version/IOC metadata
+	// so an exported bundle is self-describing and verifiable.
+	Mimir      string            `json:"mimir_version,omitempty"`
+	Files      map[string]string `json:"file_sha256,omitempty"`
+	ToolRuns   []string          `json:"tool_runs,omitempty"`
+	Indicators []IOCEntry        `json:"indicators,omitempty"`
+}
+
+// IOCEntry is a compact IOC record for the provenance manifest.
+type IOCEntry struct {
+	Type   string `json:"type"`
+	Value  string `json:"value"`
+	Source string `json:"source,omitempty"`
+}
+
+// exportOptions carries optional provenance data into the archive walk.
+type exportOptions struct {
+	version  string
+	toolRuns []string
+	iocs     []IOCEntry
+	files    map[string]string
 }
 
 // Export writes caseDir to outPath as a gzipped tar with a manifest.json at the
 // root. When includeOutput is false the output/ subtree is skipped.
 func Export(caseDir, outPath string, includeOutput bool) error {
+	return exportCase(caseDir, outPath, includeOutput, nil)
+}
+
+// ExportFull is like Export but embeds full provenance (G3): a hash of every
+// archived file, the Mimir version, the tool runs that produced the findings,
+// and the extracted indicators. Used by `export --provenance`.
+func ExportFull(c *cases.Case, outPath string, includeOutput bool, version string) error {
+	opts := &exportOptions{version: version, files: map[string]string{}}
+	for _, e := range c.Timeline() {
+		if e.Type == "tool_run" {
+			if cmd, ok := e.Payload["command"].(string); ok && cmd != "" {
+				opts.toolRuns = append(opts.toolRuns, cmd)
+			}
+		}
+	}
+	for _, i := range c.IOCs() {
+		opts.iocs = append(opts.iocs, IOCEntry{Type: i.Type, Value: i.Value, Source: i.Source})
+	}
+	return exportCase(c.Path, outPath, includeOutput, opts)
+}
+
+// exportCase implements the walk shared by Export/ExportFull. When opts is nil
+// only evidence hashes are recorded (legacy behavior); otherwise the full
+// provenance manifest is written.
+func exportCase(caseDir, outPath string, includeOutput bool, opts *exportOptions) error {
 	tmp := outPath + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -37,6 +84,12 @@ func Export(caseDir, outPath string, includeOutput bool) error {
 	name := filepath.Base(caseDir)
 	man := Manifest{Name: name, Evidence: map[string]string{}}
 	man.Exported = time.Now().Format(time.RFC3339)
+	if opts != nil {
+		man.Mimir = opts.version
+		man.Files = opts.files
+		man.ToolRuns = opts.toolRuns
+		man.Indicators = opts.iocs
+	}
 
 	walkErr := filepath.Walk(caseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -77,6 +130,15 @@ func Export(caseDir, outPath string, includeOutput bool) error {
 				return err
 			}
 			man.Evidence[filepath.Base(rel)] = hex.EncodeToString(h.Sum(nil))
+			return nil
+		}
+		// Full-file hash for provenance (every non-evidence file too).
+		if opts != nil {
+			h := sha256.New()
+			if _, err := io.Copy(io.MultiWriter(tw, h), src); err != nil {
+				return err
+			}
+			man.Files[filepath.ToSlash(rel)] = hex.EncodeToString(h.Sum(nil))
 			return nil
 		}
 		_, err = io.Copy(tw, src)

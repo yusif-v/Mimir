@@ -836,3 +836,66 @@ func TestIOCDiffAddedRemoved(t *testing.T) {
 		t.Errorf("expected - ipv4:192.168.1.1, got:\n%s", s)
 	}
 }
+
+func TestTimelineCorrelateGroupsByTool(t *testing.T) {
+	app, _ := newTestAppWithCase(t)
+	c, err := app.Cases.Open("tc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.AppendEvent(cases.TimelineEvent{Type: "tool_run", Timestamp: "2026-07-12T00:00:00Z", Payload: map[string]any{"tool": "volatility", "command": "vol windows.pslist"}})
+	_ = c.AppendEvent(cases.TimelineEvent{Type: "tool_run", Timestamp: "2026-07-12T00:01:00Z", Payload: map[string]any{"tool": "sleuthkit", "command": "fls -r img"}})
+	_ = c.AppendIOC(cases.IOCRecord{Type: "ipv4", Value: "1.2.3.4", Source: "volatility:vol windows.netscan"})
+
+	var buf bytes.Buffer
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err = app.cmdTimeline([]string{"correlate"})
+	w.Close()
+	os.Stdout = old
+	io.Copy(&buf, r)
+	if err != nil {
+		t.Fatalf("cmdTimeline correlate: %v", err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "Tool-run correlation") {
+		t.Errorf("expected correlation header, got:\n%s", s)
+	}
+	if !strings.Contains(s, "volatility") || !strings.Contains(s, "sleuthkit") {
+		t.Errorf("expected both tools listed, got:\n%s", s)
+	}
+	if !strings.Contains(s, "Indicators by type") {
+		t.Errorf("expected indicator-by-type table, got:\n%s", s)
+	}
+}
+
+func TestCorrelateCrossDomain(t *testing.T) {
+	app, _ := newTestAppWithCase(t)
+	c, err := app.Cases.Open("tc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same IP seen via volatility (memory) AND zeek (network) → cross-domain.
+	_ = c.AppendIOC(cases.IOCRecord{Type: "ipv4", Value: "9.9.9.9", Source: "volatility:vol windows.netscan"})
+	_ = c.AppendIOC(cases.IOCRecord{Type: "ipv4", Value: "9.9.9.9", Source: "zeek:conn.log"})
+
+	var buf bytes.Buffer
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err = app.cmdCorrelate(nil)
+	w.Close()
+	os.Stdout = old
+	io.Copy(&buf, r)
+	if err != nil {
+		t.Fatalf("cmdCorrelate: %v", err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "Cross-domain indicators") {
+		t.Errorf("expected cross-domain section, got:\n%s", s)
+	}
+	if !strings.Contains(s, "9.9.9.9") {
+		t.Errorf("expected the cross-domain IP, got:\n%s", s)
+	}
+}

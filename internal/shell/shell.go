@@ -48,7 +48,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.7.4"
+const Version = "0.7.5"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -299,6 +299,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdTimeline(args)
 	case "ioc":
 		return a.cmdIOC(args)
+	case "correlate":
+		return a.cmdCorrelate(args)
 	case "clear":
 		return a.cmdClear(args)
 	case "search":
@@ -343,12 +345,13 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
 	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify, classify [name]\n", colorGreen, colorReset)
-	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N, export [path] [--format csv|json])\n", colorGreen, colorReset)
+	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N, export [path] [--format csv|json], correlate)\n", colorGreen, colorReset)
 	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name> | ioc diff <a> <b>\n", colorGreen, colorReset)
+	fmt.Printf("  %scorrelate%s cross memory/disk/network IOC graph: correlate [--dot]\n", colorGreen, colorReset)
 	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
 	fmt.Printf("  %ssearch%s     find cases matching a query across all cases; --in-output searches tool output\n", colorGreen, colorReset)
 	fmt.Printf("  %sgrep%s       search tool output (alias for search --in-output)\n", colorGreen, colorReset)
-	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json]\n", colorGreen, colorReset)
+	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json] [--provenance]\n", colorGreen, colorReset)
 	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
 	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
 	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
@@ -740,6 +743,12 @@ func (a *App) cmdTimeline(args []string) error {
 		return nil
 	}
 
+	// Handle "timeline correlate" subcommand (G5): group tool runs by tool
+	// and show which tools contributed which indicators — a cross-tool view.
+	if len(args) > 0 && args[0] == "correlate" {
+		return a.timelineCorrelate(c)
+	}
+
 	// Handle "timeline export" subcommand
 	if len(args) > 0 && args[0] == "export" {
 		format := "csv"
@@ -823,6 +832,59 @@ func (a *App) cmdTimeline(args []string) error {
 	return nil
 }
 
+// timelineCorrelate (G5) groups tool runs by tool and reports which tools
+// contributed findings, plus a per-tool indicator count. It gives a
+// cross-tool overview of how the case was built.
+func (a *App) timelineCorrelate(c *cases.Case) error {
+	runs := 0
+	byTool := map[string]int{}
+	var toolRuns []string
+	for _, ev := range c.Timeline() {
+		if ev.Type != "tool_run" {
+			continue
+		}
+		runs++
+		tool, _ := ev.Payload["tool"].(string)
+		cmd, _ := ev.Payload["command"].(string)
+		if tool == "" {
+			tool = "unknown"
+		}
+		byTool[tool]++
+		if cmd != "" {
+			toolRuns = append(toolRuns, cmd)
+		}
+	}
+	if runs == 0 {
+		fmt.Println("No tool runs in timeline yet — run a tool first (volatility, sandbox run -- <tool>, ...).")
+		return nil
+	}
+	fmt.Printf("%sTool-run correlation (G5)%s — %d runs across %d tool(s):\n",
+		colorCyan, colorReset, runs, len(byTool))
+	tbl := ui.Table{
+		Headers: []string{"TOOL", "RUNS"},
+		Align:   []ui.Align{ui.AlignLeft, ui.AlignRight},
+	}
+	for tool, n := range byTool {
+		tbl.Rows = append(tbl.Rows, []string{tool, fmt.Sprintf("%d", n)})
+	}
+	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+
+	// Per-type indicator tally (cross-domain summary).
+	byType := map[string]int{}
+	for _, ic := range c.IOCs() {
+		byType[ic.Type]++
+	}
+	fmt.Printf("\n%sIndicators by type%s\n", colorCyan, colorReset)
+	itbl := ui.Table{
+		Headers: []string{"TYPE", "COUNT"},
+		Align:   []ui.Align{ui.AlignLeft, ui.AlignRight},
+	}
+	for typ, n := range byType {
+		itbl.Rows = append(itbl.Rows, []string{typ, fmt.Sprintf("%d", n)})
+	}
+	itbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	return nil
+}
 func (a *App) cmdIOC(args []string) error {
 	if len(args) == 0 {
 		return a.iocList()
@@ -935,6 +997,99 @@ func (a *App) cmdIOCDiff(args []string) error {
 	}
 	for _, k := range removed {
 		fmt.Printf("    - %s\n", k)
+	}
+	return nil
+}
+
+func (a *App) cmdCorrelate(args []string) error {
+	c := a.Cases.Current()
+	if c == nil {
+		return fmt.Errorf("no case is open")
+	}
+	iocs := c.IOCs()
+	if len(iocs) == 0 {
+		fmt.Println("No IOCs to correlate — extract some first (ioc, volatility, sandbox run -- <tool>).")
+		return nil
+	}
+	dot := false
+	for _, arg := range args {
+		if arg == "--dot" {
+			dot = true
+		}
+	}
+
+	// Classify each IOC's domain by its source tool.
+	domainOf := func(src string) string {
+		l := strings.ToLower(src)
+		switch {
+		case strings.Contains(l, "volatility"), strings.Contains(l, "mem"):
+			return "memory"
+		case strings.Contains(l, "sleuthkit"), strings.Contains(l, "icat"), strings.Contains(l, "fls"):
+			return "disk"
+		case strings.Contains(l, "zeek"), strings.Contains(l, "tshark"):
+			return "network"
+		default:
+			return "other"
+		}
+	}
+
+	// value -> set of domains it appeared in.
+	byValue := map[string]map[string]bool{}
+	byValueTypes := map[string]string{}
+	for _, ic := range iocs {
+		d := domainOf(ic.Source)
+		if byValue[ic.Value] == nil {
+			byValue[ic.Value] = map[string]bool{}
+			byValueTypes[ic.Value] = ic.Type
+		}
+		byValue[ic.Value][d] = true
+	}
+
+	fmt.Printf("%sCorrelation graph (G12)%s — %d indicators across domains:\n", colorCyan, colorReset, len(iocs))
+	domCount := map[string]int{}
+	for _, dmap := range byValue {
+		for d := range dmap {
+			domCount[d]++
+		}
+	}
+	dtbl := ui.Table{Headers: []string{"DOMAIN", "INDICATORS"}, Align: []ui.Align{ui.AlignLeft, ui.AlignRight}}
+	for _, d := range []string{"memory", "disk", "network", "other"} {
+		if domCount[d] > 0 {
+			dtbl.Rows = append(dtbl.Rows, []string{d, fmt.Sprintf("%d", domCount[d])})
+		}
+	}
+	dtbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+
+	// Cross-domain IOCs: the high-value signal (same artifact seen in 2+ domains).
+	var cross []string
+	for v, dmap := range byValue {
+		if len(dmap) >= 2 {
+			cross = append(cross, v)
+		}
+	}
+	if len(cross) > 0 {
+		fmt.Printf("\n%sCross-domain indicators (%d)%s — seen in 2+ domains:\n", colorYellow, len(cross), colorReset)
+		for _, v := range cross {
+			doms := []string{}
+			for d := range byValue[v] {
+				doms = append(doms, d)
+			}
+			fmt.Printf("  %s [%s] %s\n", byValueTypes[v], strings.Join(doms, ","), v)
+		}
+	} else {
+		fmt.Printf("\n%sNo cross-domain indicators yet.%s\n", colorDim, colorReset)
+	}
+
+	if dot {
+		fmt.Printf("\ndigraph correlate {\n")
+		for v, dmap := range byValue {
+			label := strings.ReplaceAll(v, "\"", "")
+			fmt.Printf("  \"%s\" [label=\"%s\\n(%s)\"];\n", label, label, byValueTypes[v])
+			for d := range dmap {
+				fmt.Printf("  \"%s\" -> \"domain:%s\";\n", label, d)
+			}
+		}
+		fmt.Printf("}\n")
 	}
 	return nil
 }
@@ -1068,6 +1223,7 @@ func (a *App) cmdExport(args []string) error {
 	}
 	jsonMode := false
 	includeOutput := true
+	provenance := false
 	out := ""
 	for _, arg := range args {
 		switch arg {
@@ -1075,6 +1231,8 @@ func (a *App) cmdExport(args []string) error {
 			jsonMode = true
 		case "--no-output":
 			includeOutput = false
+		case "--provenance":
+			provenance = true
 		default:
 			out = arg
 		}
@@ -1091,6 +1249,13 @@ func (a *App) cmdExport(args []string) error {
 	}
 	if out == "" {
 		out = c.Name + ".tar.gz"
+	}
+	if provenance {
+		if err := casearchive.ExportFull(c, out, includeOutput, Version); err != nil {
+			return err
+		}
+		fmt.Printf("exported %s (with provenance manifest: file hashes, tool runs, indicators)\n", out)
+		return nil
 	}
 	if err := casearchive.Export(c.Path, out, includeOutput); err != nil {
 		return err
