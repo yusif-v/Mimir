@@ -23,7 +23,8 @@ func NewServer(app *shell.App) *Server {
 	}
 	s.registerCaseTools()
 	s.registerTimelineTools()
-	s.registerEvidenceTools() // more register* calls added by later tasks
+	s.registerEvidenceTools()
+	s.registerIOCTools() // more register* calls added by later tasks
 	return s
 }
 
