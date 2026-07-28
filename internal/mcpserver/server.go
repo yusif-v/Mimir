@@ -26,6 +26,7 @@ func NewServer(app *shell.App) *Server {
 	s.registerEvidenceTools()
 	s.registerIOCTools()
 	s.registerExecTools()
+	s.registerReportTools()
 	return s
 }
 
