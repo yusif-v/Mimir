@@ -48,7 +48,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.7.5"
+const Version = "0.8.0"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -361,6 +361,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sregripper%s    Windows registry hive analysis (auto-detect, -p plugin, --json)\n", colorGreen, colorReset)
 	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
 	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [--offline] [args...]\n", colorGreen, colorReset)
+	fmt.Printf("\n  %smimir mcp%s   run outside the shell: Run Mimir as an MCP server (stdio, or --http <addr>)\n", colorGreen, colorReset)
 	return nil
 }
 
