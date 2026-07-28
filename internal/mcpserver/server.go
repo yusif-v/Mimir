@@ -21,7 +21,8 @@ func NewServer(app *shell.App) *Server {
 		app: app,
 		srv: mcp.NewServer(&mcp.Implementation{Name: "mimir", Version: shell.Version}, nil),
 	}
-	s.registerCaseTools() // more register* calls added by later tasks
+	s.registerCaseTools()
+	s.registerTimelineTools() // more register* calls added by later tasks
 	return s
 }
 
