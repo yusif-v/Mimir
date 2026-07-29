@@ -49,6 +49,17 @@ func TestIOCExtractRequiresPathOrFromOutput(t *testing.T) {
 	}
 }
 
+func TestIOCExtractFromOutputRejectsTraversal(t *testing.T) {
+	cs, _ := newTestServer(t)
+	call(t, cs, "case_create", map[string]any{"name": "inc-ioc-trav"})
+	for _, bad := range []string{"../../../etc/passwd", "sub/dir/file", "/etc/passwd"} {
+		r := call(t, cs, "ioc_extract", map[string]any{"case": "inc-ioc-trav", "from_output": bad})
+		if !r.IsError {
+			t.Errorf("from_output=%q should be rejected as path traversal", bad)
+		}
+	}
+}
+
 func TestIOCDiff(t *testing.T) {
 	cs, _ := newTestServer(t)
 	call(t, cs, "case_create", map[string]any{"name": "inc-diff"})

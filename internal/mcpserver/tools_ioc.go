@@ -72,6 +72,11 @@ func (s *Server) iocExtract(ctx context.Context, req *mcp.CallToolRequest, in io
 	if in.Path != "" && in.FromOutput != "" {
 		return errResult("ioc_extract: path and from_output are mutually exclusive"), iocExtractOut{}, nil
 	}
+	// from_output names a file directly under the case's output/ dir; reject any
+	// path separators or "." / ".." so a client can't traverse out of it.
+	if in.FromOutput != "" && filepath.Base(in.FromOutput) != in.FromOutput {
+		return errResult("ioc_extract: from_output %q must be a bare filename under the case output/ dir", in.FromOutput), iocExtractOut{}, nil
+	}
 
 	v, err := s.withCase(in.Case, func(c *cases.Case) (any, error) {
 		var data []byte

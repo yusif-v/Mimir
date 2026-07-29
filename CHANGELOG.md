@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requires a bearer token (`--token` / `MIMIR_MCP_TOKEN`, sent as
   `Authorization: Bearer <t>`).
 
+### Security
+- HTTP: an empty host (e.g. `--http :7777`) is normalized to `127.0.0.1` so the
+  bound interface matches the auth decision — previously it bound all
+  interfaces while being classified as tokenless loopback. An explicit
+  non-loopback bind (`0.0.0.0:...`) still requires a token.
+- `ioc_extract`'s `from_output` argument is now restricted to a bare filename
+  under the case `output/` directory, rejecting `..`/path-separator traversal.
+
 ## [0.7.5] - 2026-07-12
 
 ### Added (final gap-analysis gaps: G3, G5, G12)
