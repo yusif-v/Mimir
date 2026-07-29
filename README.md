@@ -89,6 +89,34 @@ The prompt shows a context line (`user | mimir | case`) above the `❯` input li
 | `clear` | Clear the screen |
 | `exit` / `quit` | Exit Mimir |
 
+## MCP server
+
+Run Mimir as a [Model Context Protocol](https://modelcontextprotocol.io) server so
+Claude Desktop / Claude Code (or any MCP client) can drive an investigation.
+
+```bash
+mimir mcp                       # stdio (for local desktop clients)
+mimir mcp --http 127.0.0.1:7777 # Streamable HTTP
+```
+
+Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "mimir": { "command": "mimir", "args": ["mcp"] }
+  }
+}
+```
+
+The tool surface is stateless — every tool takes an explicit `case` argument
+rather than relying on a REPL-style "open case". Streamable HTTP binds
+loopback (`127.0.0.1`) by default; binding a non-loopback address requires a
+token (`--token <t>` or `MIMIR_MCP_TOKEN`), which clients send as
+`Authorization: Bearer <t>`. Execution tools (`tool_run`, `tool_build`,
+`tool_install`) run Docker/host processes and carry destructive MCP
+annotations, so clients prompt before running them.
+
 ## Tools
 
 Mimir runs three kinds of tools, all through `run <tool>`:

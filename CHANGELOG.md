@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-29
+
+### Added
+- **`mimir mcp`** — Mimir is now a Model Context Protocol server. Exposes DFIR
+  operations as MCP tools over stdio and Streamable HTTP so Claude Desktop /
+  Claude Code and other MCP clients can create cases, add and verify evidence,
+  read and correlate the timeline, extract and diff IOCs, list and run tools,
+  and generate reports/exports.
+- Stateless tool model (explicit `case` argument per tool); execution tools
+  (`tool_run`/`tool_build`/`tool_install`) carry destructive MCP annotations.
+- Streamable HTTP transport binds loopback by default; non-loopback bind
+  requires a bearer token (`--token` / `MIMIR_MCP_TOKEN`, sent as
+  `Authorization: Bearer <t>`).
+
 ## [0.7.5] - 2026-07-12
 
 ### Added (final gap-analysis gaps: G3, G5, G12)
