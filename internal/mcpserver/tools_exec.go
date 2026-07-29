@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/yusif-v/mimir/internal/builtins"
@@ -87,8 +88,13 @@ func (s *Server) registerExecTools() {
 }
 
 func (s *Server) toolsList(ctx context.Context, req *mcp.CallToolRequest, in toolsListIn) (*mcp.CallToolResult, toolsListOut, error) {
+	// The Tools registry is an unsynchronized map; tool_install writes it
+	// via DiscoverFromPath/Register while this reads it, so guard with the
+	// server mutex to avoid a concurrent map read/write panic under HTTP.
+	s.mu.Lock()
 	installed := s.app.Tools.List(in.Category)
 	statuses, dockerUp := s.app.Runner.ResolveStatuses(installed)
+	s.mu.Unlock()
 
 	out := toolsListOut{DockerUp: dockerUp}
 	installedNames := map[string]bool{}
@@ -142,6 +148,18 @@ func (s *Server) toolRun(ctx context.Context, req *mcp.CallToolRequest, in toolR
 			if !ok {
 				return nil, fmt.Errorf("tool not found: %s", in.Tool)
 			}
+			// Local (non-Docker) tools that are missing their binary would
+			// otherwise trigger Runner.Run's auto-install fallback, which
+			// shells out to sudo apt-get/brew with cmd.Stdout=os.Stdout —
+			// fatal on the stdio MCP transport (corrupts JSON-RPC framing)
+			// and can hang waiting on an interactive sudo prompt. Refuse
+			// up front instead of calling Run in that case.
+			if !def.RunsInDocker() {
+				statuses, _ := s.app.Runner.ResolveStatuses([]*tools.Definition{def})
+				if statuses[def.Name] == tools.StatusMissing {
+					return nil, fmt.Errorf("tool %q is not installed; install it via the Mimir CLI first", in.Tool)
+				}
+			}
 			result = s.app.Runner.Run(def, in.Args, c.Path)
 		}
 
@@ -149,13 +167,53 @@ func (s *Server) toolRun(ctx context.Context, req *mcp.CallToolRequest, in toolR
 		if result.Stderr != "" {
 			out.Output += "\n" + result.Stderr
 		}
+
+		outputRel := ""
 		if path, rerr := s.app.Output.Record(in.Tool, result.Stdout, c.Path); rerr == nil {
 			if rel, relErr := filepath.Rel(c.Path, path); relErr == nil {
-				out.Captured = rel
+				outputRel = rel
 			} else {
-				out.Captured = path
+				outputRel = path
+			}
+			out.Captured = outputRel
+		}
+
+		// Mirror recordRun (internal/shell/shell.go) so MCP-run tools appear
+		// identically in timeline_read, timeline_correlate, report, and
+		// export --provenance.
+		payload := map[string]any{
+			"tool":        result.Tool,
+			"args":        result.Args,
+			"return_code": result.ReturnCode,
+			"duration_ms": result.Duration().Milliseconds(),
+			"output_file": outputRel,
+			"success":     result.Success(),
+		}
+		if !result.Success() {
+			stderrMsg := result.Stderr
+			if stderrMsg == "" && result.Error != nil {
+				stderrMsg = result.Error.Error()
+			}
+			if stderrMsg != "" {
+				payload["stderr"] = stderrMsg
 			}
 		}
+		// Match recordRun's error handling: append/save failures are
+		// surfaced as warnings on stderr, never as a Go error that would
+		// mask the tool result the caller already has (the tool itself
+		// ran; only bookkeeping failed).
+		if err := c.AppendEvent(cases.TimelineEvent{
+			Type:      "tool_run",
+			Timestamp: time.Now().Format(time.RFC3339),
+			Payload:   payload,
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: append timeline: %v\n", err)
+		}
+		c.AddToolUsage(in.Tool)
+		if err := c.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: save case: %v\n", err)
+		}
+
 		return out, nil
 	})
 	if err != nil {
@@ -170,7 +228,9 @@ func (s *Server) toolBuild(ctx context.Context, req *mcp.CallToolRequest, in too
 	if in.Tool == "" {
 		return errResult("tool_build: tool is required"), toolBuildOut{}, nil
 	}
+	s.mu.Lock()
 	def, ok := s.app.Tools.Get(in.Tool)
+	s.mu.Unlock()
 	if !ok {
 		return errResult("tool_build: %s is not installed — install it first", in.Tool), toolBuildOut{}, nil
 	}
@@ -204,10 +264,13 @@ func (s *Server) toolInstall(ctx context.Context, req *mcp.CallToolRequest, in t
 	if err := catalog.Install(in.Tool, destDir); err != nil {
 		return errResult("tool_install: %v", err), toolInstallOut{}, nil
 	}
-	if err := s.app.Tools.DiscoverFromPath(s.app.Config.ToolsPath); err != nil {
-		return errResult("tool_install: register tool: %v", err), toolInstallOut{}, nil
-	}
+	s.mu.Lock()
+	discoverErr := s.app.Tools.DiscoverFromPath(s.app.Config.ToolsPath)
 	def, ok := s.app.Tools.Get(in.Tool)
+	s.mu.Unlock()
+	if discoverErr != nil {
+		return errResult("tool_install: register tool: %v", discoverErr), toolInstallOut{}, nil
+	}
 	if !ok {
 		return errResult("tool_install: %s not found after install", in.Tool), toolInstallOut{}, nil
 	}
