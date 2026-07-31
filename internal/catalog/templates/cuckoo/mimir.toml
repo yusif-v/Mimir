@@ -1,0 +1,23 @@
+[tool]
+name = "cuckoo"
+description = "Automated malware analysis system"
+category = "malware-analysis"
+tags = ["malware", "behavioral", "dynamic", "windows", "android"]
+
+[docker]
+image = "cuckoo/cuckoo:latest"
+workdir = "/opt/cuckoo"
+
+[[docker.volumes]]
+host = "evidence"
+container = "/mnt/evidence"
+mode = "ro"
+
+[[docker.volumes]]
+host = "output"
+container = "/opt/cuckoo/storage/analyses"
+mode = "rw"
+
+[[docker.ports]]
+host = "8090"
+container = "8090"
