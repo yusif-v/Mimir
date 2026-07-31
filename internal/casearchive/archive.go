@@ -58,7 +58,7 @@ func ExportFull(c *cases.Case, outPath string, includeOutput bool, version strin
 	opts := &exportOptions{version: version, files: map[string]string{}}
 	for _, e := range c.Timeline() {
 		if e.Type == "tool_run" {
-			if cmd, ok := e.Payload["command"].(string); ok && cmd != "" {
+			if cmd := e.ToolRunCommand(); cmd != "" {
 				opts.toolRuns = append(opts.toolRuns, cmd)
 			}
 		}

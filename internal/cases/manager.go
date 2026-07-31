@@ -93,6 +93,21 @@ func (m *Manager) Open(name string) (*Case, error) {
 	return c, nil
 }
 
+// Load opens an existing case without side effects. Unlike Open it does not
+// change the case status, chdir, append a "case_opened" timeline event, or
+// emit events. It is intended for read-oriented consumers such as the MCP
+// server, which resolves a case by name on every tool call and must not
+// mutate the timeline or working directory in the process.
+func (m *Manager) Load(name string) (*Case, error) {
+	path := filepath.Join(m.storage.basePath, name)
+	c, err := LoadCase(path)
+	if err != nil {
+		return nil, fmt.Errorf("case '%s' not found", name)
+	}
+	m.current = c
+	return c, nil
+}
+
 // Close closes the current case.
 func (m *Manager) Close() error {
 	if m.current == nil {

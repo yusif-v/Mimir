@@ -37,7 +37,7 @@ func (s *Server) MCP() *mcp.Server { return s.srv }
 func (s *Server) withCase(name string, fn func(*cases.Case) (any, error)) (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	c, err := s.app.Cases.Open(name)
+	c, err := s.app.Cases.Load(name)
 	if err != nil {
 		return nil, err
 	}

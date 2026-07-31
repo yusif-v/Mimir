@@ -2,8 +2,70 @@ package cases
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
+
+// ToolRunCommand reconstructs the command line of a tool_run event from its
+// payload. Two payload shapes exist today: captureInto records "command"/
+// "dump"/"output" inline, while recordRun (CLI run) and the MCP tool_run
+// record "tool"/"args"/"output_file". Unifying them keeps the report,
+// narrative, archive, and export manifest consistent regardless of which
+// path produced the event.
+func (ev TimelineEvent) ToolRunCommand() string {
+	if cmd, ok := ev.Payload["command"].(string); ok && cmd != "" {
+		return cmd
+	}
+	tool, _ := ev.Payload["tool"].(string)
+	if tool == "" {
+		return ""
+	}
+	var args []string
+	switch a := ev.Payload["args"].(type) {
+	case []string:
+		args = a
+	case []any:
+		for _, v := range a {
+			if s, ok := v.(string); ok {
+				args = append(args, s)
+			}
+		}
+	}
+	if len(args) == 0 {
+		return tool
+	}
+	return tool + " " + strings.Join(args, " ")
+}
+
+// ToolRunOutput returns the captured stdout of a tool_run event. It prefers
+// the inline "output" payload (captureInto) and otherwise reads the
+// "output_file" recorded by recordRun/MCP tool_run (relative to the case
+// directory), truncated to match the inline payload's size limit.
+func (c *Case) ToolRunOutput(ev TimelineEvent) string {
+	if out, ok := ev.Payload["output"].(string); ok && out != "" {
+		return out
+	}
+	rel, _ := ev.Payload["output_file"].(string)
+	if rel == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(c.Path, rel))
+	if err != nil {
+		return ""
+	}
+	return truncateToolOutput(string(b))
+}
+
+// truncateToolOutput caps the rendered tool output so a huge capture (e.g. a
+// full disk image listing) does not balloon the report.
+func truncateToolOutput(s string) string {
+	const max = 2000
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "...(truncated)"
+}
 
 // ReportFormat is the output format for a case report.
 type ReportFormat string
@@ -100,8 +162,8 @@ func BuildReport(c *Case, summary string) (string, error) {
 		if ev.Type != "tool_run" {
 			continue
 		}
-		cmd, _ := ev.Payload["command"].(string)
-		out, _ := ev.Payload["output"].(string)
+		cmd := ev.ToolRunCommand()
+		out := c.ToolRunOutput(ev)
 		dump, _ := ev.Payload["dump"].(string)
 		if cmd == "" && out == "" {
 			continue
@@ -162,7 +224,7 @@ func BuildNarrative(c *Case) (string, error) {
 			b.WriteString(fmt.Sprintf("\n## %s\n\n", phase))
 		}
 		if ev.Type == "tool_run" {
-			cmd, _ := ev.Payload["command"].(string)
+			cmd := ev.ToolRunCommand()
 			dump, _ := ev.Payload["dump"].(string)
 			line := fmt.Sprintf("- [%s] %s", ev.Timestamp, cmd)
 			if dump != "" {

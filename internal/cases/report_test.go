@@ -1,6 +1,8 @@
 package cases
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -103,6 +105,63 @@ func TestBuildReportSurfacesToolOutput(t *testing.T) {
 	}
 	if !strings.Contains(md, "Challenge.raw") {
 		t.Error("report should note the dump source")
+	}
+}
+
+// TestBuildReportSurfacesRecordedToolOutput guards the recordRun/MCP tool_run
+// payload shape (tool/args/output_file): the report's Tool Output section must
+// reconstruct the command and read the captured output file rather than skip
+// the event because it lacks the inline "command"/"output" keys.
+func TestBuildReportSurfacesRecordedToolOutput(t *testing.T) {
+	c := newReportCase(t)
+	// Write the capture that Output.Record would have produced relative to c.Path.
+	rel := "output/icat.txt"
+	if err := os.MkdirAll(filepath.Join(c.Path, "output"), 0o755); err != nil {
+		t.Fatalf("mkdir output: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(c.Path, rel), []byte("root:/root:/bin/bash\n"), 0o644); err != nil {
+		t.Fatalf("write capture: %v", err)
+	}
+	c.AppendEvent(TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: "2026-07-11T10:06:00Z",
+		Payload: map[string]any{
+			"tool":        "icat",
+			"args":        []string{"-r", "img.raw", "0"},
+			"return_code": 0,
+			"duration_ms": 12,
+			"output_file": rel,
+			"success":     true,
+		},
+	})
+	md, err := BuildReport(c, "")
+	if err != nil {
+		t.Fatalf("BuildReport: %v", err)
+	}
+	if !strings.Contains(md, "icat -r img.raw 0") {
+		t.Errorf("report should reconstruct the command from tool/args, got:\n%s", md)
+	}
+	if !strings.Contains(md, "root:/root:/bin/bash") {
+		t.Errorf("report should surface output read from output_file, got:\n%s", md)
+	}
+}
+
+func TestBuildNarrativeRecordedToolRunShowsCommand(t *testing.T) {
+	c := newReportCase(t)
+	c.AppendEvent(TimelineEvent{
+		Type:      "tool_run",
+		Timestamp: "2026-07-11T10:06:00Z",
+		Payload: map[string]any{
+			"tool": "icat",
+			"args": []string{"-r", "img.raw", "0"},
+		},
+	})
+	narr, err := c.Narrative()
+	if err != nil {
+		t.Fatalf("Narrative: %v", err)
+	}
+	if !strings.Contains(narr, "icat -r img.raw 0") {
+		t.Errorf("narrative should reconstruct the command from tool/args, got:\n%s", narr)
 	}
 }
 

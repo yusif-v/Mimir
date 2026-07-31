@@ -123,7 +123,7 @@ func writeExportManifest(c *cases.Case, exportedPath string) (string, error) {
 		if ev.Type != "tool_run" {
 			continue
 		}
-		if cmd, ok := ev.Payload["command"].(string); ok && cmd != "" {
+		if cmd := ev.ToolRunCommand(); cmd != "" {
 			man.ToolRuns = append(man.ToolRuns, cmd)
 		}
 	}

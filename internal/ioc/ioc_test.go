@@ -84,6 +84,44 @@ func TestIPv6NoFalsePositiveOnSingleColon(t *testing.T) {
 	}
 }
 
+func TestIPv6NoFalsePositiveOnTimestamps(t *testing.T) {
+	// HH:MM:SS style timestamps (and day/month clock notation) must not be
+	// reported as IPv6 indicators even though they are colon-separated hex.
+	data := []byte(`Jan 6 06:19:54 host sshd[123]: Failed password for root from 185.12.34.56
+accepted at 10:12:34 and also 23:59:59 and 00:00:00 on tty1`)
+	inds := Extract(data)
+	for _, i := range inds {
+		if i.Type == "ipv6" {
+			t.Errorf("unexpected ipv6 indicator %q for timestamp text", i.Value)
+		}
+	}
+	if !has(inds, "ipv4", "185.12.34.56") {
+		t.Errorf("expected real ipv4 to survive timestamp filtering, got %v", inds)
+	}
+}
+
+func TestIPv6StillExtracted(t *testing.T) {
+	for _, s := range []string{
+		"2001:db8::1",
+		"::1",
+		"fe80::1",
+		"fd00::1:8080",
+	} {
+		if !has(Extract([]byte("peer "+s+" connected")), "ipv6", s) {
+			t.Errorf("expected %q to extract as ipv6", s)
+		}
+	}
+}
+
+func TestIPv6NoFalsePositiveOnMacAddress(t *testing.T) {
+	inds := Extract([]byte("device 00:1a:2b:3c:4d:5e on vlan 10"))
+	for _, i := range inds {
+		if i.Type == "ipv6" {
+			t.Errorf("unexpected ipv6 indicator %q for MAC address text", i.Value)
+		}
+	}
+}
+
 func TestExtractDedupe(t *testing.T) {
 	inds := Extract([]byte("1.2.3.4 1.2.3.4 1.2.3.4"))
 	n := 0

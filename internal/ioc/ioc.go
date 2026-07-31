@@ -2,6 +2,7 @@
 package ioc
 
 import (
+	"net"
 	"regexp"
 	"sort"
 )
@@ -12,14 +13,19 @@ type Indicator struct {
 }
 
 var (
-	reURL    = regexp.MustCompile(`\bhttps?://[^\s"'<>]+`)
-	reEmail  = regexp.MustCompile(`\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b`)
-	reIPv4   = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	reIPv6   = regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*::(?:[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*)?\b`)
-	reSHA256 = regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`)
-	reSHA1   = regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`)
-	reMD5    = regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`)
-	reDomain = regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b`)
+	reURL   = regexp.MustCompile(`\bhttps?://[^\s"'<>]+`)
+	reEmail = regexp.MustCompile(`\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b`)
+	reIPv4  = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	// reIPv6Candidates is intentionally loose: it matches colon-separated
+	// hex groups (which covers the compressed `::` form, `fe80::1`, the
+	// full 8-group form, and bare `::`). Every candidate is then validated
+	// with net.ParseIP so time-like strings such as `06:19:54` or MAC
+	// addresses like `00:1a:2b:3c:4d:5e` are never reported as IPv6.
+	reIPv6Candidates = regexp.MustCompile(`(?:[0-9a-fA-F]{0,4}:){1,}[0-9a-fA-F]{0,4}`)
+	reSHA256         = regexp.MustCompile(`\b[a-fA-F0-9]{64}\b`)
+	reSHA1           = regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`)
+	reMD5            = regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`)
+	reDomain         = regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b`)
 )
 
 // Extract returns deduplicated indicators found in data, sorted by type then
@@ -58,8 +64,11 @@ func Extract(data []byte) []Indicator {
 	for _, m := range reIPv4.FindAllString(s, -1) {
 		add("ipv4", m)
 	}
-	for _, m := range reIPv6.FindAllString(s, -1) {
-		add("ipv6", m)
+	for _, m := range reIPv6Candidates.FindAllString(s, -1) {
+		ip := net.ParseIP(m)
+		if ip != nil && ip.To4() == nil {
+			add("ipv6", m)
+		}
 	}
 	for _, m := range reDomain.FindAllString(s, -1) {
 		add("domain", m)

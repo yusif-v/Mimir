@@ -48,7 +48,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.8.1"
+const Version = "0.8.2"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -846,7 +846,7 @@ func (a *App) timelineCorrelate(c *cases.Case) error {
 		}
 		runs++
 		tool, _ := ev.Payload["tool"].(string)
-		cmd, _ := ev.Payload["command"].(string)
+		cmd := ev.ToolRunCommand()
 		if tool == "" {
 			tool = "unknown"
 		}

@@ -7,9 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Cuckoo Sandbox** — Added Docker template for automated malware analysis. Allows submission and processing of files for behavioral analysis, network traffic capture, memory dumps, and reporting.
+## [0.8.2] - 2026-07-31
 
+### Fixed
+- **IOC extraction false positives** — IPv6 candidates are now validated with
+  `net.ParseIP` instead of relying on word-boundary regex anchoring, so
+  time-like strings (`06:19:54`) and MAC addresses (`00:1a:2b:3c:4d:5e`) in
+  syslog/auth logs are no longer reported as IPv6 indicators. The Brutus
+  auth.log now yields 6 real indicators instead of ~57.
+- **Duplicate `case_opened` timeline events** — the MCP server resolved a case
+  by name on every tool call via `Cases.Open`, which appended a `case_opened`
+  event each time (plus status flips, chdir, and event emission). Added a
+  side-effect-free `Cases.Load` and switched the MCP `withCase` helper to it,
+  so read/write tool calls no longer mutate the timeline.
+- **Empty "Tool Output (Findings)" section** — tool runs recorded via
+  `recordRun`/MCP `tool_run` carry `tool`/`args`/`output_file` instead of the
+  inline `command`/`output` of `captureInto`, so the report skipped them.
+  Reports, narrative, archive, and export manifest now reconstruct the command
+  and read the captured `output_file` (truncated to 2000 bytes).
+
+### Tests
+- IPv6 false-positive regression tests (timestamps, MACs, single-colon,
+  real IPv6 still extracted); MCP server does not reopen the case per call;
+  report surfaces both inline and recorded tool output.
+
+## [0.8.1] - 2026-07-31
+
+### Added
 - **Cuckoo Sandbox** — Added Docker template for automated malware analysis. Allows submission and processing of files for behavioral analysis, network traffic capture, memory dumps, and reporting.
 
 ## [0.8.0] - 2026-07-29
