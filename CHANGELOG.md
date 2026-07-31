@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Cuckoo Sandbox** — Added Docker template for automated malware analysis. Allows submission and processing of files for behavioral analysis, network traffic capture, memory dumps, and reporting.
+
+- **Cuckoo Sandbox** — Added Docker template for automated malware analysis. Allows submission and processing of files for behavioral analysis, network traffic capture, memory dumps, and reporting.
+
 ## [0.8.0] - 2026-07-29
 
 ### Added
