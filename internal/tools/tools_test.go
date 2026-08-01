@@ -30,6 +30,10 @@ mode = "ro"
 host = "output"
 container = "/output"
 mode = "rw"
+
+[[docker.ports]]
+host = "8080"
+container = "8080"
 `
 	def, err := tools.ParseTemplate([]byte(data), "/tmp/test/mimir.toml")
 	if err != nil {
@@ -56,6 +60,12 @@ mode = "rw"
 	}
 	if def.WorkDir != "/output" {
 		t.Errorf("expected workdir '/output', got '%s'", def.WorkDir)
+	}
+	if len(def.Ports) != 1 {
+		t.Fatalf("expected 1 port mapping, got %d", len(def.Ports))
+	}
+	if def.Ports[0].Host != "8080" || def.Ports[0].Container != "8080" {
+		t.Errorf("unexpected port[0]: %+v", def.Ports[0])
 	}
 }
 

@@ -52,6 +52,7 @@ var registry = map[string]entry{
 	"rtfscan":  {Meta{"rtfscan", "detect RTF exploit objects (objdata, objclass, equation)"}, rtfscanTool},
 	"lnkparse": {Meta{"lnkparse", "parse Windows LNK shortcut files"}, lnkparseTool},
 	"mimetype": {Meta{"mimetype", "deep MIME type detection beyond magic bytes"}, mimetypeTool},
+	"unzip":    {Meta{"unzip", "list/extract ZIP and 7-Zip archives (supports AES / password-protected)"}, unzipTool},
 }
 
 // Has reports whether name is a built-in tool.

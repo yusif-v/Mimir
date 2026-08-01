@@ -49,16 +49,39 @@ func NewCase(name, path string) *Case {
 	}
 }
 
-// Save writes the case metadata to disk.
+// Save writes the case metadata to disk atomically: the JSON is first
+// written to a temp file in the same directory, then renamed over case.json.
+// A crash mid-write can never leave a truncated/corrupt case.json in place.
 func (c *Case) Save() error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal case: %w", err)
 	}
 	metaPath := filepath.Join(c.Path, "case.json")
-	if err := os.WriteFile(metaPath, data, 0644); err != nil {
-		return fmt.Errorf("write case.json: %w", err)
+	tmp, err := os.CreateTemp(c.Path, ".case.json.*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
 	}
+	tmpName := tmp.Name()
+	defer func() {
+		if tmpName != "" {
+			os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		return fmt.Errorf("chmod temp: %w", err)
+	}
+	if err := os.Rename(tmpName, metaPath); err != nil {
+		return fmt.Errorf("rename over case.json: %w", err)
+	}
+	tmpName = "" // rename succeeded; nothing to clean up
 	return nil
 }
 

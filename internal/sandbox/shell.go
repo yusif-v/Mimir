@@ -243,7 +243,9 @@ func (sh *Shell) CopyFile(w io.Writer, args []string) error {
 	if !ok {
 		return fmt.Errorf("sandbox not found: %s", id)
 	}
-	destPath := "/tmp/" + filepath.Base(srcPath)
+	// Stage under /work — the exec-capable tmpfs. /tmp is mounted noexec, so
+	// files copied there could never be executed inside the container.
+	destPath := "/work/" + filepath.Base(srcPath)
 	if err := sh.runtime.CopyFile(s.ContainerID, srcPath, destPath); err != nil {
 		return err
 	}

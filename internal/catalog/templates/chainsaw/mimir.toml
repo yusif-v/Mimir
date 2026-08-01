@@ -7,6 +7,7 @@ tags = ["windows", "evtx", "log", "sigma", "detection"]
 [docker]
 image = "dfir-chainsaw:latest"
 workdir = "/output"
+version = "--version"
 
 [[docker.volumes]]
 host = "evidence"

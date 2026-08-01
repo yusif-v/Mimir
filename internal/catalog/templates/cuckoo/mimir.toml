@@ -1,7 +1,7 @@
 [tool]
 name = "cuckoo"
 description = "Automated malware analysis system"
-category = "malware-analysis"
+category = "malware"
 tags = ["malware", "behavioral", "dynamic", "windows", "android"]
 
 [docker]

@@ -171,3 +171,132 @@ func TestManagerNamesEmpty(t *testing.T) {
 		t.Fatalf("got %v, want empty", names)
 	}
 }
+
+func TestCreateRejectsPathTraversal(t *testing.T) {
+	badNames := []string{
+		"../escape",
+		"a/../escape",
+		"a/b",
+		"/abs/path",
+		"..",
+		".",
+		"",
+		`..\escape`,
+		"a\\b",
+	}
+	for _, name := range badNames {
+		mgr, base := newTestManager(t)
+		if _, err := mgr.Create(name); err == nil {
+			t.Errorf("Create(%q): expected error, got nil", name)
+		}
+		// Nothing may be created outside the base path.
+		escaped := filepath.Join(filepath.Dir(base), "escape")
+		if _, err := os.Stat(escaped); !os.IsNotExist(err) {
+			t.Errorf("Create(%q): traversal created %s", name, escaped)
+		}
+	}
+}
+
+func TestOpenRejectsPathTraversal(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	mgr.Create("good")
+	for _, name := range []string{"../escape", "a/../good", "/abs/good", ".."} {
+		if _, err := mgr.Open(name); err == nil {
+			t.Errorf("Open(%q): expected error, got nil", name)
+		}
+	}
+}
+
+func TestLoadRejectsPathTraversal(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	mgr.Create("good")
+	for _, name := range []string{"../escape", "a/../good", "/abs/good", ".."} {
+		if _, err := mgr.Load(name); err == nil {
+			t.Errorf("Load(%q): expected error, got nil", name)
+		}
+	}
+}
+
+func TestValidateCaseName(t *testing.T) {
+	good := []string{"case-1", "incident_42", "CaseName", "a.b.c"}
+	for _, name := range good {
+		if err := cases.ValidateCaseName(name); err != nil {
+			t.Errorf("ValidateCaseName(%q): unexpected error %v", name, err)
+		}
+	}
+	bad := []string{"", ".", "..", "../x", "a/b", "a\\b", "/abs", "a/.."}
+	for _, name := range bad {
+		if err := cases.ValidateCaseName(name); err == nil {
+			t.Errorf("ValidateCaseName(%q): expected error, got nil", name)
+		}
+	}
+}
+
+func TestCloseCaseByName(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	mgr.Create("case-a")
+	c, err := mgr.CloseCase("case-a")
+	if err != nil {
+		t.Fatalf("CloseCase failed: %v", err)
+	}
+	if c.Status != "closed" {
+		t.Errorf("expected status 'closed', got '%s'", c.Status)
+	}
+	if mgr.Current() != nil {
+		t.Error("CloseCase should not disturb the current-case pointer")
+	}
+
+	// Reload from disk to confirm the status persisted.
+	reloaded, err := mgr.Load("case-a")
+	if err != nil {
+		t.Fatalf("Load after close: %v", err)
+	}
+	if reloaded.Status != "closed" {
+		t.Errorf("reloaded status = %q, want 'closed'", reloaded.Status)
+	}
+}
+
+func TestCloseCaseNonexistent(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	if _, err := mgr.CloseCase("nope"); err == nil {
+		t.Fatal("expected error for nonexistent case")
+	}
+}
+
+func TestCloseRejectsTraversal(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	if _, err := mgr.CloseCase("../escape"); err == nil {
+		t.Fatal("CloseCase with traversal name: expected error, got nil")
+	}
+}
+
+func TestSaveIsAtomic(t *testing.T) {
+	mgr, _ := newTestManager(t)
+	c, err := mgr.Create("atomic-case")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	c.Metadata["k"] = "v"
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	entries, err := os.ReadDir(c.Path)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "case.json" && e.Name() != "evidence" && e.Name() != "output" && e.Name() != "notes" {
+			t.Errorf("unexpected leftover file after atomic Save: %q", e.Name())
+		}
+	}
+
+	// Reload preserves the metadata (temp+rename didn't clobber anything).
+	reloaded, err := mgr.Load("atomic-case")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := reloaded.Metadata["k"]; got != "v" {
+		t.Errorf("metadata k = %q, want 'v'", got)
+	}
+}

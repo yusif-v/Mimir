@@ -1,8 +1,14 @@
 package tools
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"testing"
 )
@@ -100,5 +106,61 @@ func TestExitCode(t *testing.T) {
 		if got := exitCode(tc.err); got != tc.want {
 			t.Errorf("%s: exitCode = %d, want %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestDownloadFileMatchingChecksum(t *testing.T) {
+	body := []byte("mimir-forensic-binary-v1")
+	wantSum := sha256.Sum256(body)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "tool")
+	if err := downloadFile(srv.URL, dest, hex.EncodeToString(wantSum[:])); err != nil {
+		t.Fatalf("downloadFile with matching checksum failed: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if string(got) != string(body) {
+		t.Errorf("downloaded bytes = %q, want %q", got, body)
+	}
+}
+
+func TestDownloadFileChecksumMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("corrupted-bytes"))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "tool")
+	err := downloadFile(srv.URL, dest, hex.EncodeToString(make([]byte, 32)))
+	if err == nil {
+		t.Fatal("expected checksum mismatch error, got nil")
+	}
+	if !errors.Is(err, errChecksumMismatch) {
+		t.Errorf("expected errChecksumMismatch, got %v", err)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Errorf("partial file %s should have been removed, stat err = %v", dest, statErr)
+	}
+}
+
+func TestDownloadFileNon2xxStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "tool")
+	if err := downloadFile(srv.URL, dest, ""); err == nil {
+		t.Fatal("expected error for 404 status, got nil")
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Errorf("no file should exist after failed download, stat err = %v", statErr)
 	}
 }

@@ -17,6 +17,7 @@ type iocExtractIn struct {
 	Case       string `json:"case" jsonschema:"case name"`
 	Path       string `json:"path,omitempty" jsonschema:"file to extract IOCs from"`
 	FromOutput string `json:"from_output,omitempty" jsonschema:"captured tool-output name (under the case's output/ dir) to extract from"`
+	Persist    bool   `json:"persist,omitempty" jsonschema:"if true, record extracted indicators (and a timeline event) against the case"`
 }
 type indicator struct {
 	Type  string `json:"type"`
@@ -50,7 +51,7 @@ type correlateOut struct {
 func (s *Server) registerIOCTools() {
 	mcp.AddTool(s.srv, &mcp.Tool{
 		Name:        "ioc_extract",
-		Description: "Extract indicators of compromise (IPs, domains, URLs, emails, hashes) from a file or a captured tool output, and record them against the case.",
+		Description: "Extract indicators of compromise (IPs, domains, URLs, emails, hashes) from a file or a captured tool output. Read-only unless persist=true, which records the indicators (and a timeline event) against the case.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.iocExtract)
 	mcp.AddTool(s.srv, &mcp.Tool{
@@ -99,10 +100,16 @@ func (s *Server) iocExtract(ctx context.Context, req *mcp.CallToolRequest, in io
 
 		inds := ioc.Extract(data)
 		out := make([]indicator, 0, len(inds))
+		for _, ind := range inds {
+			out = append(out, indicator{Type: ind.Type, Value: ind.Value})
+		}
+		if !in.Persist {
+			return out, nil
+		}
+
 		counts := map[string]int{}
 		now := time.Now().Format(time.RFC3339)
 		for _, ind := range inds {
-			out = append(out, indicator{Type: ind.Type, Value: ind.Value})
 			counts[ind.Type]++
 			if err := c.AppendIOC(cases.IOCRecord{Type: ind.Type, Value: ind.Value, Source: source, Time: now}); err != nil {
 				return nil, fmt.Errorf("append ioc: %w", err)
@@ -115,6 +122,9 @@ func (s *Server) iocExtract(ctx context.Context, req *mcp.CallToolRequest, in io
 			}); err != nil {
 				return nil, fmt.Errorf("append timeline: %w", err)
 			}
+		}
+		if err := c.Save(); err != nil {
+			return nil, fmt.Errorf("save case: %w", err)
 		}
 		return out, nil
 	})
