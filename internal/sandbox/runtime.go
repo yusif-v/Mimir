@@ -41,7 +41,9 @@ func (r *Runtime) CreateContainer(s *Sandbox) error {
 		return fmt.Errorf("docker pull %s: %s", s.Image, string(output))
 	}
 
-	// Create container with no network, read-only root, limited resources
+	// Create container with no network, read-only root, limited resources.
+	// /tmp stays noexec (hardening); targets are executed from /work, a
+	// separate exec-capable tmpfs — RunTarget must not stage under /tmp.
 	args := []string{
 		"run", "-d",
 		"--name", s.ID,
@@ -49,7 +51,11 @@ func (r *Runtime) CreateContainer(s *Sandbox) error {
 		"--read-only",
 		"--memory", "512m",
 		"--cpus", "1.0",
-		"--tmpfs", "/tmp:rw,noexec,nosuid,size=100m",
+		"--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges",
+		"--pids-limit", "128",
+		"--tmpfs", "/tmp:rw,nosuid,noexec,size=100m",
+		"--tmpfs", "/work:rw,nosuid,exec,size=100m",
 		s.Image,
 		"sleep", fmt.Sprintf("%d", s.Timeout),
 	}
@@ -107,18 +113,24 @@ ps aux > /tmp/process_snapshot_$(date +%s).txt
 }
 
 // RunTarget copies the target file into the container and executes it.
-func (r *Runtime) RunTarget(containerID, targetFile string) (string, error) {
+// The target is staged under /work (an exec tmpfs) — /tmp is mounted noexec,
+// so executing from there would always fail. The timeout is the sandbox's own
+// configured timeout, with a 60s floor.
+func (r *Runtime) RunTarget(containerID, targetFile string, timeout int) (string, error) {
 	if r.dryRun {
 		return "dry-run execution", nil
 	}
-	// Copy file to /tmp/ in container and execute
-	destPath := "/tmp/" + filepath.Base(targetFile)
+	// Copy file to /work/ in container and execute
+	destPath := "/work/" + filepath.Base(targetFile)
 	if err := r.CopyFile(containerID, targetFile, destPath); err != nil {
 		return "", err
 	}
+	if timeout <= 0 {
+		timeout = 60
+	}
 	// Make executable and run
 	cmd := exec.Command("docker", "exec", containerID, "sh", "-c",
-		fmt.Sprintf("chmod +x %s && timeout %d %s", destPath, 60, destPath))
+		fmt.Sprintf("chmod +x %s && timeout %d %s", destPath, timeout, destPath))
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }

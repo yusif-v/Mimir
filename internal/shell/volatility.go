@@ -77,7 +77,9 @@ func (a *App) cmdVolatility(args []string) error {
 		"run", "--rm",
 		"--network", "none",
 		"-v", dumpPath + ":" + containerPath + ":ro",
-		volImage, "vol",
+		// The image's ENTRYPOINT is "vol" (see volatility/Dockerfile), so the
+		// first positional arg is the plugin — do NOT pass "vol" again.
+		volImage,
 	}
 	dockerArgs = append(dockerArgs, pluginArgs...)
 	if offline {

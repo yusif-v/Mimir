@@ -218,6 +218,7 @@ func TestBuildContextWithEvidence(t *testing.T) {
 		Tags:   []string{"pe", "packed"},
 	})
 	opts := DefaultContextOptions()
+	opts.Local = true // unmasked context for local providers
 	opts.IncludeIOCs = false
 	opts.IncludeTimeline = false
 	msgs := BuildContext(c, opts)
@@ -229,6 +230,54 @@ func TestBuildContextWithEvidence(t *testing.T) {
 	}
 	if !strings.Contains(msgs[0].Content, "pe") {
 		t.Fatalf("expected evidence tags in context")
+	}
+}
+
+func TestBuildContextMasksEvidenceForRemote(t *testing.T) {
+	dir := t.TempDir()
+	c := &cases.Case{Name: "test", Status: "open", Path: dir}
+	c.AppendEvidence(cases.EvidenceRecord{
+		Op:     "add",
+		Name:   "C:/Users/alice/Desktop/HR_termination.xlsx",
+		SHA256: "abc123def456789012345678",
+		Size:   1024,
+		Tags:   []string{"xlsx"},
+	})
+	// Default options = remote (Local=false): filename must NOT leak.
+	msgs := BuildContext(c, DefaultContextOptions())
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if strings.Contains(msgs[0].Content, "HR_termination") {
+		t.Fatalf("remote context leaked evidence filename with PII: %q", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[0].Content, "evidence_1") {
+		t.Fatalf("expected masked evidence name, got %q", msgs[0].Content)
+	}
+	// Hash and tags must survive masking.
+	if !strings.Contains(msgs[0].Content, "sha256:abc123def456") {
+		t.Fatalf("expected short hash in context: %q", msgs[0].Content)
+	}
+	if !strings.Contains(msgs[0].Content, "xlsx") {
+		t.Fatalf("expected tags in context: %q", msgs[0].Content)
+	}
+}
+
+func TestBuildContextShortHashEmpty(t *testing.T) {
+	dir := t.TempDir()
+	c := &cases.Case{Name: "test", Status: "open", Path: dir}
+	c.AppendEvidence(cases.EvidenceRecord{
+		Op:   "add",
+		Name: "no-hash-file.bin",
+		Size: 100,
+	})
+	// Must not panic on an empty SHA256.
+	msgs := BuildContext(c, DefaultContextOptions())
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "no-hash") {
+		t.Fatalf("expected no-hash placeholder, got %q", msgs[0].Content)
 	}
 }
 

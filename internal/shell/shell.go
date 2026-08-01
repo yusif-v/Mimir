@@ -1445,7 +1445,13 @@ func (a *App) buildAIMessages() []ai.Message {
 	if c == nil {
 		return nil
 	}
-	return ai.BuildContext(c, ai.DefaultContextOptions())
+	opts := ai.DefaultContextOptions()
+	if a.AI != nil {
+		// Local/self-hosted providers get unmasked context; remote providers
+		// get PII-safe (evidence-filename-masked) context.
+		opts.Local = a.AI.IsLocal()
+	}
+	return ai.BuildContext(c, opts)
 }
 
 func (a *App) cmdPlugin(args []string) error {

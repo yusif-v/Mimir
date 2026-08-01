@@ -4,6 +4,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,48 @@ import (
 	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/events"
 )
+
+// Default timeouts and output caps for tool execution. A runaway tool must not
+// be able to hang Mimir forever or exhaust memory with unbounded stdout.
+const (
+	localRunTimeout  = time.Hour
+	dockerRunTimeout = 30 * time.Minute
+	maxOutputBytes   = 8 << 20 // 8 MiB cap per stdout/stderr stream
+)
+
+// cappedBuffer is an io.Writer that silently discards writes beyond its limit
+// so unbounded tool output cannot exhaust memory.
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	remaining := c.limit - c.buf.Len()
+	if remaining <= 0 {
+		c.truncated = true
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		c.truncated = true
+		p = p[:remaining]
+	}
+	return c.buf.Write(p)
+}
+
+// exitCode extracts the process exit code from an exec error, defaulting to 1
+// for non-ExitError failures (e.g. the binary not existing).
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return 1
+}
 
 // Definition represents a registered tool.
 type Definition struct {
@@ -342,7 +385,8 @@ func (r *Runner) Run(tool *Definition, args []string, casePath string) *Result {
 }
 
 func (r *Runner) runDocker(tool *Definition, args []string, casePath string, result *Result) *Result {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), dockerRunTimeout)
+	defer cancel()
 
 	// Build volume mounts
 	var binds []string
@@ -391,6 +435,10 @@ func (r *Runner) runDocker(tool *Definition, args []string, casePath string, res
 
 	hostConfig := &container.HostConfig{
 		Binds: binds,
+		Resources: container.Resources{
+			Memory:   512 << 20, // 512 MiB
+			NanoCPUs: 2e9,       // 2 CPUs
+		},
 	}
 
 	// Create container
@@ -436,9 +484,17 @@ func (r *Runner) runDocker(tool *Definition, args []string, casePath string, res
 		}
 	case status := <-statusCh:
 		result.ReturnCode = int(status.StatusCode)
+	case <-ctx.Done():
+		result.Error = fmt.Errorf("tool '%s' timed out after %s", tool.Name, dockerRunTimeout)
+		result.FinishedAt = time.Now()
+		r.events.Emit(events.ToolError, map[string]any{
+			"tool":  tool.Name,
+			"error": result.Error,
+		})
+		return result
 	}
 
-	// Capture stdout/stderr
+	// Capture stdout/stderr (capped so a noisy tool can't exhaust memory)
 	logs, err := r.docker.ContainerLogs(ctx, containerID, container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -446,9 +502,9 @@ func (r *Runner) runDocker(tool *Definition, args []string, casePath string, res
 	if err != nil {
 		result.Error = fmt.Errorf("docker logs: %w", err)
 	} else {
-		var buf bytes.Buffer
-		io.Copy(&buf, logs)
-		result.Stdout = buf.String()
+		buf := &cappedBuffer{limit: maxOutputBytes}
+		io.Copy(buf, logs)
+		result.Stdout = buf.buf.String()
 	}
 
 	result.FinishedAt = time.Now()
@@ -470,19 +526,29 @@ func (r *Runner) runDocker(tool *Definition, args []string, casePath string, res
 }
 
 func (r *Runner) runLocal(cmd string, args []string, result *Result) *Result {
-	fullArgs := append([]string{cmd}, args...)
-	command := exec.Command(fullArgs[0], fullArgs[1:]...)
+	ctx, cancel := context.WithTimeout(context.Background(), localRunTimeout)
+	defer cancel()
 
-	var stdout, stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
+	command := exec.CommandContext(ctx, cmd, args...)
+
+	stdout := &cappedBuffer{limit: maxOutputBytes}
+	stderr := &cappedBuffer{limit: maxOutputBytes}
+	command.Stdout = stdout
+	command.Stderr = stderr
 
 	if err := command.Run(); err != nil {
-		result.Error = err
-		result.ReturnCode = 1
+		if ctx.Err() == context.DeadlineExceeded {
+			result.Error = fmt.Errorf("tool '%s' timed out after %s", cmd, localRunTimeout)
+		} else {
+			result.Error = err
+		}
+		result.ReturnCode = exitCode(err)
 	}
-	result.Stdout = stdout.String()
-	result.Stderr = stderr.String()
+	result.Stdout = stdout.buf.String()
+	result.Stderr = stderr.buf.String()
+	if stdout.truncated || stderr.truncated {
+		result.Stderr += fmt.Sprintf("\n[output truncated at %d bytes]", maxOutputBytes)
+	}
 	result.FinishedAt = time.Now()
 
 	if result.Error == nil {

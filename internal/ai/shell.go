@@ -10,6 +10,10 @@ import (
 // Shell integrates AI into the Mimir REPL.
 type Shell struct {
 	client *Client
+	// local records whether the configured provider runs on this host. Local
+	// providers may receive unmasked case context; remote providers get
+	// PII-safe (filename-masked) context.
+	local bool
 }
 
 // NewShell creates an AI shell from the config.
@@ -18,7 +22,12 @@ func NewShell(cfg AIConfig) (*Shell, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Shell{client: client}, nil
+	return &Shell{client: client, local: cfg.IsLocal()}, nil
+}
+
+// IsLocal reports whether the active provider is a local (self-hosted) model.
+func (s *Shell) IsLocal() bool {
+	return s.local
 }
 
 // ProviderName returns the active provider name.
@@ -102,7 +111,7 @@ func (s *Shell) Summarize(ctx context.Context, c *cases.Case) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("ai: no case available")
 	}
-	messages := BuildAnalysisContext(c)
+	messages := BuildAnalysisContextLocal(c, s.local)
 	messages = append(messages, Message{
 		Role:    RoleUser,
 		Content: "Write a concise incident summary for this case. Cover: (1) what the evidence shows happened, (2) the most important evidence items, (3) notable IOCs, (4) recommended next investigation steps. Be specific and technical.",

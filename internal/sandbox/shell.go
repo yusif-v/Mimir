@@ -138,7 +138,7 @@ func (sh *Shell) Run(w io.Writer, args []string) error {
 	} else if s.TargetFile != "" {
 		// Preset target-file path.
 		fmt.Fprintf(w, "Executing %s in sandbox %s...\n", s.TargetFile, s.ID)
-		output, err := sh.runtime.RunTarget(s.ContainerID, s.TargetFile)
+		output, err := sh.runtime.RunTarget(s.ContainerID, s.TargetFile, s.Timeout)
 		if err != nil {
 			fmt.Fprintf(w, "Execution error: %v\n", err)
 		}
