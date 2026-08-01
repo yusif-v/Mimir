@@ -7,6 +7,7 @@ tags = ["binary", "pe", "elf", "mitre", "att&ck", "analysis"]
 [docker]
 image = "dfir-capa:latest"
 workdir = "/output"
+version = "--version"
 
 [[docker.volumes]]
 host = "evidence"

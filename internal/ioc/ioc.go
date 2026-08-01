@@ -5,6 +5,7 @@ import (
 	"net"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 type Indicator struct {
@@ -27,6 +28,36 @@ var (
 	reMD5            = regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`)
 	reDomain         = regexp.MustCompile(`\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b`)
 )
+
+// domainFileExts are lowercase dotted suffixes that reDomain would otherwise
+// misreport as domains. Forensic output is full of file paths, image names,
+// and script names (once.cmd, msiexec.exe, KERNEL32.DLL, prefetch .pf entries);
+// those are the dominant "domains" in e.g. Sysmon JSON, so they are filtered
+// out here. Tokens that are real (delegated) TLDs — com/net/io/ru/… — are not
+// in this set and are never dropped.
+var domainFileExts = map[string]bool{
+	"7z": true, "avi": true, "bat": true, "bmp": true, "cfg": true,
+	"cmd": true, "conf": true, "csv": true, "dat": true, "db": true,
+	"dll": true, "dmp": true, "doc": true, "docx": true, "drv": true,
+	"eot": true, "etl": true, "evtx": true, "exe": true, "gif": true,
+	"gz": true, "ico": true, "img": true, "ini": true, "iso": true,
+	"jpeg": true, "jpg": true, "json": true, "js": true, "lnk": true,
+	"log": true, "md": true, "manifest": true, "mkv": true, "mp3": true,
+	"mp4": true, "msi": true, "mui": true, "ocx": true, "pcap": true,
+	"pdb": true, "pdf": true, "pf": true, "php": true, "png": true,
+	"ppt": true, "pptx": true, "ps1": true, "py": true, "rar": true,
+	"rb": true, "scr": true, "sqlite": true, "svg": true, "sys": true,
+	"tar": true, "tmp": true, "ttf": true, "txt": true, "vbs": true,
+	"vhd": true, "vhdx": true, "vmdk": true, "wav": true, "woff": true,
+	"xls": true, "xlsx": true, "xml": true, "yaml": true, "yml": true,
+	"zip": true,
+}
+
+// isFileExtLabel reports whether a domain's final label (the token after its
+// last dot) looks like a file extension rather than a real TLD.
+func isFileExtLabel(label string) bool {
+	return domainFileExts[strings.ToLower(label)]
+}
 
 // Extract returns deduplicated indicators found in data, sorted by type then
 // value. Emails/URLs are extracted before bare domains. The dedupe key is
@@ -59,10 +90,15 @@ func Extract(data []byte) []Indicator {
 		add("url", m)
 	}
 	for _, m := range reEmail.FindAllString(s, -1) {
-		add("email", m)
+		if !isFileExtLabel(m[strings.LastIndex(m, ".")+1:]) {
+			add("email", m)
+		}
 	}
 	for _, m := range reIPv4.FindAllString(s, -1) {
-		add("ipv4", m)
+		ip := net.ParseIP(m)
+		if ip != nil && ip.To4() != nil {
+			add("ipv4", m)
+		}
 	}
 	for _, m := range reIPv6Candidates.FindAllString(s, -1) {
 		ip := net.ParseIP(m)
@@ -71,7 +107,9 @@ func Extract(data []byte) []Indicator {
 		}
 	}
 	for _, m := range reDomain.FindAllString(s, -1) {
-		add("domain", m)
+		if !isFileExtLabel(m[strings.LastIndex(m, ".")+1:]) {
+			add("domain", m)
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {

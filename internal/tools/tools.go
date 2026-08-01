@@ -4,6 +4,8 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/yusif-v/mimir/internal/builtins"
@@ -75,10 +78,13 @@ type Definition struct {
 	TemplatePath string            `json:"template_path,omitempty"`
 	Tags         []string          `json:"tags" toml:"tags"`
 	Metadata     map[string]string `json:"metadata" toml:"metadata"`
+
 	// Parsed from mimir.toml
 	Volumes    []VolumeMapping `toml:"-"`
+	Ports      []PortMapping   `toml:"-"`
 	Entrypoint string          `toml:"-"`
 	WorkDir    string          `toml:"-"`
+	Version    string          `toml:"-"` // docker smoke-test arg, e.g. "--version"
 }
 
 // VolumeMapping maps a host directory to a container directory.
@@ -86,6 +92,12 @@ type VolumeMapping struct {
 	Host      string `toml:"host"`
 	Container string `toml:"container"`
 	Mode      string `toml:"mode"` // "ro" or "rw"
+}
+
+// PortMapping maps a host port to a container port.
+type PortMapping struct {
+	Host      string `toml:"host"`
+	Container string `toml:"container"`
 }
 
 // ToolTemplate is the mimir.toml format.
@@ -97,18 +109,24 @@ type ToolTemplate struct {
 		Tags        []string `toml:"tags"`
 	} `toml:"tool"`
 	Local struct {
-		Cmd     string `toml:"cmd"`
-		Install string `toml:"install"`
+		Cmd      string `toml:"cmd"`
+		Install  string `toml:"install"`
+		Checksum string `toml:"checksum"`
 	} `toml:"local"`
 	Docker struct {
 		Image      string `toml:"image"`
 		Entrypoint string `toml:"entrypoint"`
 		WorkDir    string `toml:"workdir"`
+		Version    string `toml:"version"`
 		Volumes    []struct {
 			Host      string `toml:"host"`
 			Container string `toml:"container"`
 			Mode      string `toml:"mode"`
 		} `toml:"volumes"`
+		Ports []struct {
+			Host      string `toml:"host"`
+			Container string `toml:"container"`
+		} `toml:"ports"`
 	} `toml:"docker"`
 }
 
@@ -193,7 +211,7 @@ func (r *Runner) ensureLocalTool(tool *Definition) error {
 	if strings.HasPrefix(tool.LocalCmd, "http://") || strings.HasPrefix(tool.LocalCmd, "https://") {
 		binName := tool.Name
 		dest := filepath.Join(binDir, binName)
-		return downloadFile(tool.LocalCmd, dest)
+		return downloadFile(tool.LocalCmd, dest, tool.Metadata["checksum"])
 	}
 	// If LocalCmd is a package manager hint, try installing.
 	if hint, ok := tool.Metadata["install"]; ok {
@@ -202,20 +220,55 @@ func (r *Runner) ensureLocalTool(tool *Definition) error {
 	return fmt.Errorf("cannot install '%s' locally — provide a download URL in local_cmd", tool.Name)
 }
 
-// downloadFile downloads a URL to a local file.
-func downloadFile(url, dest string) error {
-	resp, err := http.Get(url)
+// downloadTimeout bounds how long a single local-tool binary download may
+// take; a hung server must not block Mimir indefinitely.
+const downloadTimeout = 10 * time.Minute
+
+// errChecksumMismatch is returned when a downloaded binary fails SHA-256
+// verification against the expected digest from the tool template.
+var errChecksumMismatch = errors.New("checksum mismatch")
+
+// downloadFile downloads a URL to a local file, enforcing an overall timeout,
+// rejecting non-2xx responses, and — when wantSHA256 is non-empty — verifying
+// the downloaded bytes against the expected SHA-256 digest before the file is
+// kept. A failed digest check removes the partial file.
+func downloadFile(url, dest, wantSHA256 string) error {
+	client := &http.Client{Timeout: downloadTimeout}
+	resp, err := client.Get(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("download %s: %w", url, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("download %s: unexpected status %s", url, resp.Status)
+	}
+
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
-		return err
+		return fmt.Errorf("create %s: %w", dest, err)
 	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	defer func() {
+		f.Close()
+		if err != nil {
+			os.Remove(dest)
+		}
+	}()
+
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(f, h), resp.Body); err != nil {
+		return fmt.Errorf("write %s: %w", dest, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", dest, err)
+	}
+	if wantSHA256 != "" {
+		got := hex.EncodeToString(h.Sum(nil))
+		if !strings.EqualFold(got, wantSHA256) {
+			err = fmt.Errorf("%w: %s: got %s, want %s", errChecksumMismatch, dest, got, wantSHA256)
+			return err
+		}
+	}
+	return nil
 }
 
 // installViaPackageManager tries to install a tool via apt/brew.
@@ -281,7 +334,12 @@ func ParseTemplate(data []byte, path string) (*Definition, error) {
 		TemplatePath: path,
 		Entrypoint:   tmpl.Docker.Entrypoint,
 		WorkDir:      tmpl.Docker.WorkDir,
+		Version:      tmpl.Docker.Version,
 		Metadata:     map[string]string{"install": tmpl.Local.Install},
+	}
+
+	if tmpl.Local.Checksum != "" {
+		def.Metadata["checksum"] = tmpl.Local.Checksum
 	}
 
 	for _, v := range tmpl.Docker.Volumes {
@@ -293,6 +351,13 @@ func ParseTemplate(data []byte, path string) (*Definition, error) {
 			Host:      v.Host,
 			Container: v.Container,
 			Mode:      mode,
+		})
+	}
+
+	for _, p := range tmpl.Docker.Ports {
+		def.Ports = append(def.Ports, PortMapping{
+			Host:      p.Host,
+			Container: p.Container,
 		})
 	}
 
@@ -439,6 +504,27 @@ func (r *Runner) runDocker(tool *Definition, args []string, casePath string, res
 			Memory:   512 << 20, // 512 MiB
 			NanoCPUs: 2e9,       // 2 CPUs
 		},
+	}
+
+	if len(tool.Ports) > 0 {
+		exposed := nat.PortSet{}
+		bindings := nat.PortMap{}
+		for _, p := range tool.Ports {
+			if p.Container == "" {
+				continue
+			}
+			cp := nat.Port(p.Container)
+			if !strings.Contains(cp.Proto(), "tcp") && !strings.Contains(cp.Proto(), "udp") {
+				cp = nat.Port(cp.Port() + "/tcp")
+			}
+			exposed[cp] = struct{}{}
+			bindings[cp] = append(bindings[cp], nat.PortBinding{
+				HostIP:   "127.0.0.1",
+				HostPort: p.Host,
+			})
+		}
+		containerConfig.ExposedPorts = exposed
+		hostConfig.PortBindings = bindings
 	}
 
 	// Create container

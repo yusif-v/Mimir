@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-08-01
+
+### Added
+- **`dashboard` / `dash`** — interactive Bubble Tea TUI: a tool explorer with
+  live status, filters, and run counts pulled from the case timeline; pressing
+  Enter runs the selected tool in the current case. Replaces the standalone
+  `cmd/tui-tools` scaffold.
+- **`unzip` password/AES support** — list or extract password-protected ZIP
+  (WinZip AES / method 99) and 7-Zip archives via `-p <password>`.
+- **MCP tools** — `case_close` (tears down sandboxes, never deletes the case)
+  and `search` (cross-case search over names, notes, timeline, IOCs, evidence,
+  metadata, and optionally captured output under `output/`).
+- **Tool templates** — optional `[docker.ports]` host/container port mappings
+  and a `version` smoke-test arg; `checksum` for local downloads.
+- **Case name validation** — `ValidateCaseName` rejects empty, absolute,
+  separator-containing, and `..` names at the manager boundary.
+
+### Fixed
+- **Path traversal via case name** — `Create`/`Open`/`Load` now reject names
+  that could escape the storage base directory.
+- **Atomic `case.json` saves** — metadata is written to a temp file and renamed
+  over `case.json`, so a crash mid-write can never leave a truncated case.
+- **Global `os.Chdir` side effects** — case `Open`/`Close` no longer chdir into
+  the case directory.
+- **IOC false positives** — IPv4 extraction validates octets with
+  `net.ParseIP`; domain/email extraction filters file-extension lookalikes
+  (`.exe`, `.dll`, `.cmd`, …) that dominate forensic output.
+- **`downloadFile`** — now enforces a 10-minute timeout and optional SHA-256
+  checksum verification.
+- **Sandbox `cp`** — stages files under `/work` (the exec-capable tmpfs)
+  instead of noexec `/tmp`, so copied binaries can actually run in-container.
+- **cuckoo template** — category corrected to `malware`.
+
+### Security
+- Tool execution hardening (sandbox cap-drop ALL, no-new-privileges,
+  pids-limit; 1h local / 30m docker timeouts; 8 MiB output caps; docker
+  memory/CPU limits; real exit codes).
+- AI context is PII-safe for remote providers: evidence filenames are masked
+  (`evidence_N`) unless the provider is local.
+
+### Tests
+- Case-name validation (absolute, `..`, separator, ok); atomic save; IPv4
+  octet + file-extension IOC regressions; `case_close`; MCP `search`;
+  `ioc_extract` persist flag; capped-buffer + exit-code tests; TUI explorer
+  model tests.
+
 ## [0.8.2] - 2026-07-31
 
 ### Fixed

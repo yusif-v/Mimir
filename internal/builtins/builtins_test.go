@@ -362,7 +362,7 @@ func TestMimetypeMissingFile(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewBuiltinsInRegistry(t *testing.T) {
-	for _, name := range []string{"peinfo", "elfinfo", "rtfscan", "lnkparse", "mimetype"} {
+	for _, name := range []string{"peinfo", "elfinfo", "rtfscan", "lnkparse", "mimetype", "unzip"} {
 		if !Has(name) {
 			t.Errorf("Has(%q) = false", name)
 		}
@@ -375,13 +375,13 @@ func TestNewBuiltinsInList(t *testing.T) {
 	for _, tool := range tools {
 		toolNames[tool.Name] = true
 	}
-	for _, name := range []string{"peinfo", "elfinfo", "rtfscan", "lnkparse", "mimetype"} {
+	for _, name := range []string{"peinfo", "elfinfo", "rtfscan", "lnkparse", "mimetype", "unzip"} {
 		if !toolNames[name] {
 			t.Errorf("List() missing %s", name)
 		}
 	}
-	// Total should be 11 (6 original + 5 new)
-	if len(tools) != 11 {
-		t.Errorf("expected 11 builtins, got %d", len(tools))
+	// Total should be 12 (6 original + 6 new)
+	if len(tools) != 12 {
+		t.Errorf("expected 12 builtins, got %d", len(tools))
 	}
 }

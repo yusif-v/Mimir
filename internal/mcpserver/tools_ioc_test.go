@@ -79,7 +79,7 @@ func TestCorrelate(t *testing.T) {
 	call(t, cs, "case_create", map[string]any{"name": "inc-corr"})
 	f := filepath.Join(t.TempDir(), "log.txt")
 	os.WriteFile(f, []byte("contact 8.8.8.8"), 0o644)
-	call(t, cs, "ioc_extract", map[string]any{"case": "inc-corr", "path": f})
+	call(t, cs, "ioc_extract", map[string]any{"case": "inc-corr", "path": f, "persist": true})
 	r := call(t, cs, "correlate", map[string]any{"case": "inc-corr"})
 	if r.IsError {
 		t.Fatalf("correlate: %v", r.Content)
@@ -91,7 +91,7 @@ func TestCorrelateDot(t *testing.T) {
 	call(t, cs, "case_create", map[string]any{"name": "inc-corr-dot"})
 	f := filepath.Join(t.TempDir(), "log.txt")
 	os.WriteFile(f, []byte("contact 8.8.8.8"), 0o644)
-	call(t, cs, "ioc_extract", map[string]any{"case": "inc-corr-dot", "path": f})
+	call(t, cs, "ioc_extract", map[string]any{"case": "inc-corr-dot", "path": f, "persist": true})
 	r := call(t, cs, "correlate", map[string]any{"case": "inc-corr-dot", "dot": true})
 	if r.IsError {
 		t.Fatalf("correlate --dot: %v", r.Content)
@@ -106,5 +106,48 @@ func TestCorrelateDot(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected digraph output in correlate --dot summary, content: %v", r.Content)
+	}
+}
+
+func TestIOCExtractIsReadOnlyByDefault(t *testing.T) {
+	cs, app := newTestServer(t)
+	call(t, cs, "case_create", map[string]any{"name": "inc-ro"})
+	f := filepath.Join(t.TempDir(), "log.txt")
+	os.WriteFile(f, []byte("contact 8.8.8.8"), 0o644)
+	if r := call(t, cs, "ioc_extract", map[string]any{"case": "inc-ro", "path": f}); r.IsError {
+		t.Fatalf("ioc_extract: %v", r.Content)
+	}
+	c, err := app.Cases.Load("inc-ro")
+	if err != nil {
+		t.Fatalf("load case: %v", err)
+	}
+	if n := len(c.IOCs()); n != 0 {
+		t.Fatalf("expected 0 IOCs recorded by default (read-only extract), got %d", n)
+	}
+}
+
+func TestIOCExtractPersistRecordsAndTimeline(t *testing.T) {
+	cs, app := newTestServer(t)
+	call(t, cs, "case_create", map[string]any{"name": "inc-persist"})
+	f := filepath.Join(t.TempDir(), "log.txt")
+	os.WriteFile(f, []byte("contact 8.8.8.8"), 0o644)
+	if r := call(t, cs, "ioc_extract", map[string]any{"case": "inc-persist", "path": f, "persist": true}); r.IsError {
+		t.Fatalf("ioc_extract: %v", r.Content)
+	}
+	c, err := app.Cases.Load("inc-persist")
+	if err != nil {
+		t.Fatalf("load case: %v", err)
+	}
+	if n := len(c.IOCs()); n == 0 {
+		t.Fatal("expected recorded IOCs with persist=true")
+	}
+	var sawEvent bool
+	for _, e := range c.Timeline() {
+		if e.Type == "ioc_extracted" {
+			sawEvent = true
+		}
+	}
+	if !sawEvent {
+		t.Fatal("expected an ioc_extracted timeline event with persist=true")
 	}
 }

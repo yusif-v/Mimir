@@ -53,15 +53,18 @@ type toolRunOut struct {
 	ExitOK   bool   `json:"exit_ok"`
 	Output   string `json:"output"`
 	Captured string `json:"captured_path,omitempty"`
+	Stderr   string `json:"stderr,omitempty"` // snippet included when the run failed
 }
 
 type toolBuildIn struct {
 	Tool string `json:"tool" jsonschema:"installed tool name to build a Docker image for"`
 }
 type toolBuildOut struct {
-	Tool  string `json:"tool"`
-	Built bool   `json:"built"`
-	Log   string `json:"log,omitempty"`
+	Tool    string `json:"tool"`
+	Built   bool   `json:"built"`
+	Log     string `json:"log,omitempty"`
+	SmokeOK bool   `json:"smoke_ok,omitempty"`
+	Smoke   string `json:"smoke_output,omitempty"`
 }
 
 type toolInstallIn struct {
@@ -72,6 +75,8 @@ type toolInstallOut struct {
 	Installed bool   `json:"installed"`
 	Built     bool   `json:"built"`
 	Log       string `json:"log,omitempty"`
+	SmokeOK   bool   `json:"smoke_ok,omitempty"`
+	Smoke     string `json:"smoke_output,omitempty"`
 }
 
 func (s *Server) registerExecTools() {
@@ -167,6 +172,13 @@ func (s *Server) toolRun(ctx context.Context, req *mcp.CallToolRequest, in toolR
 		if result.Stderr != "" {
 			out.Output += "\n" + result.Stderr
 		}
+		if !result.Success() {
+			stderrMsg := result.Stderr
+			if stderrMsg == "" && result.Error != nil {
+				stderrMsg = result.Error.Error()
+			}
+			out.Stderr = stderrSnippet(stderrMsg)
+		}
 
 		outputRel := ""
 		if path, rerr := s.app.Output.Record(in.Tool, result.Stdout, c.Path); rerr == nil {
@@ -221,7 +233,23 @@ func (s *Server) toolRun(ctx context.Context, req *mcp.CallToolRequest, in toolR
 	}
 	out := v.(toolRunOut)
 	summary := fmt.Sprintf("%s: exit_ok=%v", out.Tool, out.ExitOK)
+	if out.Stderr != "" {
+		summary += fmt.Sprintf(", stderr: %s", out.Stderr)
+	}
 	return textResult(summary), out, nil
+}
+
+// stderrSnippetLen bounds how much of a failing tool's stderr is echoed back to
+// the MCP client so a noisy traceback can't flood the tool result.
+const stderrSnippetLen = 2000
+
+// stderrSnippet keeps the tail of a failing tool's stderr, marking any
+// truncation so the client knows the output was cut.
+func stderrSnippet(s string) string {
+	if len(s) <= stderrSnippetLen {
+		return s
+	}
+	return "...[truncated]...\n" + s[len(s)-stderrSnippetLen:]
 }
 
 func (s *Server) toolBuild(ctx context.Context, req *mcp.CallToolRequest, in toolBuildIn) (*mcp.CallToolResult, toolBuildOut, error) {
@@ -240,11 +268,14 @@ func (s *Server) toolBuild(ctx context.Context, req *mcp.CallToolRequest, in too
 	if !s.app.Runner.DockerReachable() {
 		return errResult("tool_build: docker is not available"), toolBuildOut{}, nil
 	}
-	log, err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage)
+	log, smoke, smokeOK, err := buildAndSmoke(def)
 	if err != nil {
 		return errResult("tool_build: %v", err), toolBuildOut{}, nil
 	}
-	out := toolBuildOut{Tool: in.Tool, Built: true, Log: log}
+	out := toolBuildOut{Tool: in.Tool, Built: true, Log: log, Smoke: smoke, SmokeOK: smokeOK}
+	if !smokeOK {
+		return errResult("tool_build: %s: image built but smoke test failed (docker run %s %s)", in.Tool, def.DockerImage, def.Version), out, nil
+	}
 	return textResult(fmt.Sprintf("%s: image built", in.Tool)), out, nil
 }
 
@@ -280,14 +311,47 @@ func (s *Server) toolInstall(ctx context.Context, req *mcp.CallToolRequest, in t
 		if !s.app.Runner.DockerReachable() {
 			return textResult(fmt.Sprintf("%s: template installed, but Docker is not available — use tool_build once Docker is running", in.Tool)), out, nil
 		}
-		log, err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage)
+		log, smoke, smokeOK, err := buildAndSmoke(def)
 		if err != nil {
 			return errResult("tool_install: build image: %v", err), toolInstallOut{}, nil
 		}
 		out.Built = true
 		out.Log = log
+		out.Smoke = smoke
+		out.SmokeOK = smokeOK
 	}
 	return textResult(fmt.Sprintf("%s: installed and ready", in.Tool)), out, nil
+}
+
+// buildAndSmoke builds a tool's Docker image and, when the template declares a
+// version probe (docker.version), runs it in a throwaway container to confirm
+// the image is actually usable. A broken download or a binary/glibc mismatch
+// must fail the build rather than silently leave a dead image behind.
+func buildAndSmoke(def *tools.Definition) (log, smoke string, smokeOK bool, err error) {
+	log, err = buildImage(filepath.Dir(def.TemplatePath), def.DockerImage)
+	if err != nil {
+		return log, "", false, err
+	}
+	if def.Version == "" {
+		return log, "", true, nil
+	}
+	smoke, err = runSmokeTest(def.DockerImage, def.Version)
+	if err != nil {
+		return log, smoke, false, err
+	}
+	return log, smoke, true, nil
+}
+
+// runSmokeTest starts a throwaway container from image with versionArg (e.g.
+// "--version"), expecting it to print version info and exit 0. Combined output
+// is returned so a failure can be diagnosed from the MCP tool result.
+func runSmokeTest(image, versionArg string) (string, error) {
+	cmd := exec.Command("docker", "run", "--rm", image, versionArg)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("smoke test `docker run --rm %s %s`: %w", image, versionArg, err)
+	}
+	return string(out), nil
 }
 
 // buildImage builds a Docker image from a template directory by shelling out

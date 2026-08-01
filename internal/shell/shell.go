@@ -31,6 +31,8 @@ import (
 	"github.com/yusif-v/mimir/internal/theme"
 	"github.com/yusif-v/mimir/internal/tools"
 	"github.com/yusif-v/mimir/internal/ui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // reIP matches an IPv4 address (used by networkHints for zeek conn logs).
@@ -48,7 +50,7 @@ const (
 )
 
 // Version is the Mimir release version, shown in the startup banner.
-const Version = "0.8.2"
+const Version = "0.8.3"
 
 func banner() string {
 	return fmt.Sprintf("%sMimir v%s%s — DFIR shell. Type '%shelp%s' for commands, '%sexit%s' to quit.",
@@ -327,6 +329,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdReport(args)
 	case "volatility", "mem":
 		return a.cmdVolatility(args)
+	case "dashboard", "dash":
+		return a.cmdDashboard(args)
 	default:
 		return a.cmdShell(line)
 	}
@@ -339,6 +343,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %scase%s       manage cases (-n new, -o open, -c close, templates)\n", colorGreen, colorReset)
 	fmt.Printf("  %scases%s      list all cases\n", colorGreen, colorReset)
 	fmt.Printf("  %stools%s      list registered tools\n", colorGreen, colorReset)
+	fmt.Printf("  %sdashboard%s   interactive TUI: tool explorer with live status\n", colorGreen, colorReset)
 	fmt.Printf("  %srun%s        run a tool: run <name> [args...]\n", colorGreen, colorReset)
 	fmt.Printf("  %sinstall%s    install a tool from the catalog: install <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
@@ -575,14 +580,64 @@ func (a *App) cmdTools(args []string) error {
 	return nil
 }
 
+// cmdDashboard enters an interactive Bubble Tea dashboard with the tool explorer.
+func (a *App) cmdDashboard(args []string) error {
+	installed := a.Tools.List("")
+	statuses, _ := a.Runner.ResolveStatuses(installed)
+
+	model := ui.NewToolExplorer(installed, statuses, a.toolRunCounts())
+	model.SetResolver(func() (map[string]tools.Status, bool) {
+		return a.Runner.ResolveStatuses(installed)
+	})
+
+	// Enter full-screen TUI mode. Quitting yields the final model, which the
+	// explorer uses to hand back a tool chosen via Enter for immediate run.
+	prog := tea.NewProgram(model, tea.WithAltScreen())
+	final, err := prog.Run()
+	if err != nil {
+		return err
+	}
+	explorer, ok := final.(*ui.ToolExplorer)
+	if !ok {
+		return nil
+	}
+	if name := explorer.SelectedTool(); name != "" {
+		return a.runToolByName(name, nil)
+	}
+	return nil
+}
+
+// toolRunCounts returns how many times each tool was executed in the current
+// case, derived from tool_run timeline events.
+func (a *App) toolRunCounts() map[string]int {
+	counts := map[string]int{}
+	c := a.Cases.Current()
+	if c == nil {
+		return counts
+	}
+	for _, ev := range c.Timeline() {
+		if ev.Type != "tool_run" {
+			continue
+		}
+		name, ok := ev.Payload["tool"].(string)
+		if !ok || name == "" {
+			continue
+		}
+		counts[name]++
+	}
+	return counts
+}
+
 func (a *App) cmdRun(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: run <tool_name> [args...]")
 	}
+	return a.runToolByName(args[0], args[1:])
+}
 
-	toolName := args[0]
-	toolArgs := args[1:]
-
+// runToolByName runs a named tool with the given args, prints its output, and
+// records the run into the open case (timeline + output file + tool usage).
+func (a *App) runToolByName(toolName string, toolArgs []string) error {
 	casePath := ""
 	if c := a.Cases.Current(); c != nil {
 		casePath = c.Path

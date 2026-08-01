@@ -41,6 +41,14 @@ type caseStatusOut struct {
 	IOCCount      int    `json:"ioc_count"`
 }
 
+type caseCloseIn struct {
+	Case string `json:"case" jsonschema:"case name"`
+}
+type caseCloseOut struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
 func (s *Server) registerCaseTools() {
 	mcp.AddTool(s.srv, &mcp.Tool{
 		Name:        "cases_list",
@@ -56,6 +64,21 @@ func (s *Server) registerCaseTools() {
 		Description: "Report status and counts (evidence, notes, timeline events, IOCs) for a case.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, s.caseStatus)
+	mcp.AddTool(s.srv, &mcp.Tool{
+		Name:        "case_close",
+		Description: "Close a Mimir case. Closing tears down any running sandboxes for the case but never deletes the case, its evidence, or its timeline.",
+	}, s.caseClose)
+}
+
+func (s *Server) caseClose(ctx context.Context, req *mcp.CallToolRequest, in caseCloseIn) (*mcp.CallToolResult, caseCloseOut, error) {
+	s.mu.Lock()
+	c, err := s.app.Cases.CloseCase(in.Case)
+	s.mu.Unlock()
+	if err != nil {
+		return errResult("case_close: %v", err), caseCloseOut{}, nil
+	}
+	out := caseCloseOut{Name: c.Name, Status: c.Status}
+	return textResult(fmt.Sprintf("case %q closed", c.Name)), out, nil
 }
 
 func (s *Server) caseCreate(ctx context.Context, req *mcp.CallToolRequest, in caseCreateIn) (*mcp.CallToolResult, caseCreateOut, error) {

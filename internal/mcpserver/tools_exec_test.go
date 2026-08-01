@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -104,6 +105,66 @@ func TestToolRunUnknownToolIsError(t *testing.T) {
 	}
 	r := call(t, cs, "tool_run", map[string]any{"case": "inc-exec", "tool": "does-not-exist"})
 	if !r.IsError {
+		t.Fatal("expected error for unknown tool")
+	}
+}
+
+// TestToolRunFailureIncludesStderr guards gap 3: a failed tool run must surface
+// a stderr snippet (and exit_ok=false) instead of dropping the diagnostic.
+func TestToolRunFailureIncludesStderr(t *testing.T) {
+	cs, _ := newTestServer(t)
+	if r := call(t, cs, "case_create", map[string]any{"name": "inc-fail"}); r.IsError {
+		t.Fatalf("case_create: %v", r.Content)
+	}
+	r := call(t, cs, "tool_run", map[string]any{
+		"case": "inc-fail",
+		"tool": "decode",
+		"args": []string{"--base64", "!!!"},
+	})
+	if r.IsError {
+		t.Fatalf("tool_run unexpectedly errored at MCP level: %v", r.Content)
+	}
+	raw, err := json.Marshal(r.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structured content: %v", err)
+	}
+	var out toolRunOut
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal toolRunOut: %v", err)
+	}
+	if out.ExitOK {
+		t.Fatal("expected exit_ok=false for invalid base64 input")
+	}
+	if !strings.Contains(out.Stderr, "input is not valid base64") {
+		t.Fatalf("expected stderr snippet to mention invalid base64, got %q", out.Stderr)
+	}
+}
+
+func TestStderrSnippetTruncation(t *testing.T) {
+	short := "one line"
+	if got := stderrSnippet(short); got != short {
+		t.Fatalf("stderrSnippet(%q) = %q, want unchanged", short, got)
+	}
+	long := strings.Repeat("x", stderrSnippetLen+100)
+	got := stderrSnippet(long)
+	if !strings.HasPrefix(got, "...[truncated]...\n") {
+		t.Fatalf("expected truncation marker, got prefix %q", got[:min(20, len(got))])
+	}
+	if !strings.HasSuffix(got, strings.Repeat("x", stderrSnippetLen)) {
+		t.Fatal("expected snippet to keep the tail")
+	}
+}
+
+func TestToolBuildUnknownToolIsError(t *testing.T) {
+	cs, _ := newTestServer(t)
+	if r := call(t, cs, "tool_build", map[string]any{"tool": "does-not-exist"}); !r.IsError {
+		t.Fatal("expected error for unknown tool")
+	}
+}
+
+func TestToolInstallUnknownToolIsError(t *testing.T) {
+	cs, _ := newTestServer(t)
+	if r := call(t, cs, "tool_install", map[string]any{"tool": "does-not-exist"}); !r.IsError {
 		t.Fatal("expected error for unknown tool")
 	}
 }

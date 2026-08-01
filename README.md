@@ -1,6 +1,12 @@
 # Mimir
 
-DFIR shell and tool multiplexer. Written in Go.
+A DFIR investigation shell for incident response, written in Go.
+
+Mimir is a REPL that puts a full investigation toolkit at your fingertips. Open a
+case, add evidence, run analysis tools (native Go builtins, Docker-backed
+forensics images, or arbitrary local binaries), watch IOCs get extracted and
+correlated automatically, and produce an incident report — with everything
+recorded on a searchable, exportable timeline.
 
 ## Quick Start
 
@@ -9,203 +15,79 @@ go build -o mimir ./cmd/mimir
 ./mimir
 ```
 
-Open a case, run a tool against evidence, and review the timeline:
+A five-minute investigation:
 
 ```
-[user][mimir] ❯ case -n incident-42      # create a case
-[user][mimir] ❯ case -o incident-42      # open it
+[user][mimir] ❯ case -n incident-42                    # create a case
+[user][mimir] ❯ case -o incident-42                    # open it
+[user][mimir][incident-42] ❯ evidence add sample.bin --tag malware,packed
 [user][mimir][incident-42] ❯ run hash evidence/sample.bin
-[user][mimir][incident-42] ❯ evidence add evidence/sample.bin --tag malware,packed
+[user][mimir][incident-42] ❯ ioc --from-output hash
 [user][mimir][incident-42] ❯ note suspicious packed binary
 [user][mimir][incident-42] ❯ timeline
+[user][mimir][incident-42] ❯ report
 ```
 
-## REPL
+## Features
 
-The interactive shell has full line editing via readline:
+- **REPL with readline** — history, tab completion (commands, tools, cases,
+  files), Ctrl+R search, and shell passthrough for anything else.
+- **Cases** — create/open/close cases; every action is recorded on an immutable
+  timeline with notes.
+- **Evidence & IOCs** — hash-tracked evidence with tags, automatic IOC
+  extraction from tool output, and cross-domain correlation.
+- **Three tool kinds** — native Go builtins, Docker-backed catalog tools, and
+  local binaries, all run through `run <tool>`.
+- **First-class analysis** — `volatility` (memory), `sleuthkit` (disk), and
+  `regripper` (Windows registry) as dedicated commands.
+- **Sandbox** — disposable Docker containers for detonating and analyzing files.
+- **AI assistant** — optional LLM integration for case analysis, next-step
+  suggestions, and report narratives (OpenRouter, Anthropic, Ollama, or any
+  OpenAI-compatible endpoint).
+- **MCP server** — expose the investigation to Claude Desktop / Claude Code.
+- **Portable cases** — export to `tar.gz` (with provenance manifest) or JSON,
+  import anywhere.
 
-- **Arrow keys** — ↑/↓ walk persistent command history (saved to `~/.mimir/.history`), ←/→ move the cursor
-- **Tab** — context-aware completion: command names, tool names (for `run`/`use`), installable tools (for `install`), case names (for `case -o`/`-c`), and file paths
-- **Ctrl+R** — reverse history search
-- **Ctrl+C** — cancel the current line (does not exit); **Ctrl+D** — exit
-- Any unrecognized command is passed through to the system shell
-
-### Prompt
-
-The prompt shows a context line (`user | mimir | case`) above the `❯` input line (Starship-style). Set `MIMIR_ASCII=1` or `NO_COLOR=1` to switch to a plain ASCII prompt with no icons or color.
-
-## Commands
+## Command Reference
 
 | Command | Description |
-|---------|-------------|
+|---|---|
 | `help` | List commands |
 | `status` | Show the current case status |
-| `case -n <name> [-t <template>]` | Create a new case (optionally from a template) |
-| `case -o <name>` | Open a case |
-| `case -c` | Close the current case |
-| `case templates` | List available case templates |
-| `cases [--status open\|closed]` | List all cases (filter by status) |
-| `tools` | List installed, built-in, and installable tools with status |
-| `run <tool> [args...]` | Run a tool; output is captured to the open case |
-| `install <name>` | Install a tool template from the embedded catalog |
-| `build <name>` | Build a Docker-backed tool's image |
-| `use <tool>` | Show details for a tool |
-| `note <text>` | Add a note to the open case |
-| `timeline [-n N] [--type <event-type>] [--grep <pattern>] [export [path] [--format csv|json]]` | Show the case timeline; filter by event type or text; export to CSV or JSON |
-| `evidence add <path> [--tag a,b]` | Add a file to evidence (copies + SHA-256) |
-| `evidence tag <name> <tag>...` | Tag an evidence item |
-| `evidence verify [<name>]` | Verify evidence SHA-256 hashes |
-| `evidence` / `ev` | List evidence for the current case |
-| `ioc <file>` | Extract IOCs (IPs, domains, hashes, URLs) from a file |
-| `ioc --from-output <name>` | Extract IOCs from a captured tool-output file |
-| `ioc` | List tracked IOCs for the current case |
-| `search <query> [--in-output]` | Search across all cases (names, notes, paths); `--in-output` searches within captured tool output |
-| `grep <query>` | Search within captured tool output (alias for `search --in-output`) |
-| `export [path] [--no-output] [--json]` | Export the current case to a tar.gz archive |
-| `import <archive>` | Import a case archive (auto-renames on conflict) |
-| `plugin list` | List discovered plugins |
-| `plugin run <name>` | Run a plugin |
-| `plugin info <name>` | Show plugin details |
-| `sandbox create --os <os> [--file <path>]` | Create a sandbox |
-| `sandbox run <id>` | Run target file in sandbox |
-| `sandbox shell <id>` | Open interactive shell in sandbox |
-| `sandbox logs <id>` | View captured events |
-| `sandbox report <id>` | View analysis report |
-| `sandbox cp <file> <id>` | Copy file into sandbox |
-| `sandbox destroy <id>` | Destroy a sandbox |
-| `sandbox list` | List active sandboxes |
-| `sleuthkit <tool> [args]` | Disk forensic analysis (fls, fsstat, icat, mmls, blkcalc, istat) |
-| `regripper <hive> [-p plugin] [--json]` | Windows registry hive analysis |
-| `ai ask <question>` | Ask the configured LLM a question with case context |
-| `ai analyze` | Analyze the current case (timeline, evidence, IOCs) |
-| `ai suggest` | Suggest next investigation steps |
-| `ai explain <tool-output>` | Explain a captured tool output |
-| `ai config` | Show the current AI provider/model configuration |
-| `ai models` | List models the active provider can serve |
-| `ai use <model> [--save]` | Switch the active model at runtime (--save persists) |
-| `ai summarize` | Generate a case narrative from timeline, evidence, and IOCs |
-| `report [path] [--format md|pdf] [--no-ai]` | Generate a full incident report for the current case |
-| `timeline build --auto` | Correlate case events into a phase-labeled narrative.md |
-| `clear` | Clear the screen |
-| `exit` / `quit` | Exit Mimir |
+| `case` | `-n <name> [-t <template>]` create, `-o <name>` open, `-c` close, `templates` |
+| `cases` | List cases (`--status open\|closed`) |
+| `tools` | List built-in, installed, and installable tools |
+| `run <tool> [args...]` | Run a tool; output captured to the open case |
+| `install <name>` / `build <name>` | Install a catalog tool / build its Docker image |
+| `note <text>` | Add a note to the current case |
+| `evidence` / `ev` | `add`, `tag`, `verify`, `classify` |
+| `timeline` | Case timeline (`--type`, `--grep`, `-n`, `export`, `correlate`, `build`) |
+| `ioc` | Extract from a file or tool output, `diff` sets, list tracked |
+| `correlate [--dot]` | Cross-domain (memory/disk/network) IOC graph |
+| `search` / `grep` | Search cases, notes, and tool output |
+| `export` / `import` | Bundle / restore case archives (`tar.gz` or JSON) |
+| `ai` | `ask`, `analyze`, `suggest`, `explain`, `summarize`, `config`, `use` |
+| `plugin` | `list`, `run <name>`, `info <name>` |
+| `theme` | `list`, `set <name>`, `save [path]` |
+| `sandbox` | `create`, `run`, `shell`, `logs`, `report`, `cp`, `destroy`, `list` |
+| `sleuthkit <tool>` | Disk forensics: fls, fsstat, icat, mmls, istat, ... |
+| `regripper <hive>` | Windows registry hive analysis (`-p` plugin, `--json`) |
+| `volatility <plugin>` / `mem` | Memory forensics (Volatility 3) |
+| `report` | Generate an incident report (`md` or `pdf`) |
+| `dashboard` / `dash` | Interactive TUI tool explorer |
+| `clear` / `exit` / `quit` | Utility |
 
-## MCP server
+## Documentation
 
-Run Mimir as a [Model Context Protocol](https://modelcontextprotocol.io) server so
-Claude Desktop / Claude Code (or any MCP client) can drive an investigation.
+Full documentation lives in [`docs/`](docs/):
 
-```bash
-mimir mcp                       # stdio (for local desktop clients)
-mimir mcp --http 127.0.0.1:7777 # Streamable HTTP
-```
-
-Claude Desktop config:
-
-```json
-{
-  "mcpServers": {
-    "mimir": { "command": "mimir", "args": ["mcp"] }
-  }
-}
-```
-
-The tool surface is stateless — every tool takes an explicit `case` argument
-rather than relying on a REPL-style "open case". Streamable HTTP binds
-loopback (`127.0.0.1`) by default; binding a non-loopback address requires a
-token (`--token <t>` or `MIMIR_MCP_TOKEN`), which clients send as
-`Authorization: Bearer <t>`. Execution tools (`tool_run`, `tool_build`,
-`tool_install`) run Docker/host processes and carry destructive MCP
-annotations, so clients prompt before running them.
-
-## Tools
-
-Mimir runs three kinds of tools, all through `run <tool>`:
-
-- **Built-in** — native Go, always available, no dependencies: `hash` (MD5/SHA1/SHA256), `strings`, `file`, `hexdump`, `entropy`, `decode`, `peinfo`, `elfinfo`, `rtfscan`, `lnkparse`, `mimetype`
-- **Docker** — sandboxed tools from the embedded catalog (e.g. `volatility`, `yara`, `bulk_extractor`); `install <name>` adds the template, `build <name>` builds the image
-- **Local** — tools found on `PATH` via a `mimir.toml` template
-
-When a case is open, tool output is saved under the case's `output/` directory and recorded as a `tool_run` event on the timeline.
-
-### Built-in tool quick reference
-
-| Tool | Usage |
-|------|-------|
-| `hash` | `run hash <file>` — MD5 / SHA1 / SHA256 |
-| `strings` | `run strings <file>` — printable strings |
-| `file` | `run file <file>` — magic-byte identification |
-| `hexdump` | `run hexdump <file>` — canonical hex + ASCII dump |
-| `entropy` | `run entropy <file>` — Shannon entropy (flags packed/encrypted regions) |
-| `decode` | `run decode [--base64\|--hex\|--url] <input>` — decode encoded data (auto-detect if no flag) |
-| `peinfo` | `run peinfo <file>` — PE headers, imports, sections, compile timestamp |
-| `elfinfo` | `run elfinfo <file>` — ELF headers, sections, symbols |
-| `rtfscan` | `run rtfscan <file>` — detect RTF exploit objects (objdata, objclass, DDE, hex blobs) |
-| `lnkparse` | `run lnkparse <file>` — parse Windows LNK shortcut files |
-| `mimetype` | `run mimetype <file>` — deep MIME type detection with format-specific inspection |
-
-## Evidence & IOCs
-
-**Evidence** tracks files tied to a case. Each `evidence add` copies the file under `evidence/`, records SHA-256, and appends to `evidence.jsonl`. Use `evidence verify` to re-check hashes at any time.
-
-**IOC extraction** scans a file or prior tool output for indicators (IP addresses, domains, file hashes, URLs) and appends them to `ioc.jsonl`. All tracked IOCs survive session restarts.
-
-```
-[user][mimir][incident-42] ❯ evidence add malware.exe --tag pe,packed
-[user][mimir][incident-42] ❯ run entropy malware.exe
-[user][mimir][incident-42] ❯ ioc malware.exe
-[user][mimir][incident-42] ❯ ioc
-```
-
-## Sharing (export / import)
-
-`export` bundles the case directory into a tar.gz archive with a `manifest.json` (case metadata + file hashes). Use `--no-output` to omit captured tool output, `--json` to print the manifest to stdout instead of saving it.
-
-`import` extracts an archive into `~/.mimir/investigations/`. If a case with the same name exists it is auto-renamed (`<name>-1`, `<name>-2`, …). File hashes in the manifest are verified on import.
-
-```
-[user][mimir][incident-42] ❯ export ~/Desktop/incident-42.tar.gz
-[user][mimir] ❯ import ~/Desktop/incident-42.tar.gz
-```
-
-## Config
-
-Mimir stores everything under `~/.mimir/`:
-
-```
-~/.mimir/config.yaml       # Config file
-~/.mimir/investigations/   # Cases
-~/.mimir/tools/            # Tool templates
-~/.mimir/plugins/          # Plugins
-~/.mimir/cache/            # Cache
-~/.mimir/logs/             # Logs
-~/.mimir/logs/mimir.log    # Main log file
-~/.mimir/.history          # Command history
-```
-
-Generate a default config:
-
-```bash
-./mimir config
-# or specify a path:
-./mimir config ~/.mimir/config.yaml
-```
-
-### Config File (`~/.mimir/config.yaml`)
-
-```yaml
-log_level: INFO
-```
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `MIMIR_HOME` | Override base directory (default: `~/.mimir`) |
-| `MIMIR_CASES_PATH` | Override cases directory |
-| `MIMIR_LOG_LEVEL` | Log level (DEBUG, INFO, WARN, ERROR) |
-| `MIMIR_ASCII` | Set to any non-empty value to use a plain ASCII prompt (no icons) |
-| `NO_COLOR` | Disable all ANSI color output (implies ASCII prompt) |
-
-## License
-
-MIT
+- [Overview & configuration](docs/overview.md)
+- [Cases & notes](docs/cases.md)
+- [Evidence, IOCs & timeline](docs/evidence.md)
+- [Tools: builtins & catalog](docs/tools.md)
+- [Memory, disk & registry analysis](docs/analysis.md)
+- [Sandbox](docs/sandbox.md)
+- [AI assistant](docs/ai.md)
+- [Reporting, export & themes](docs/reporting.md)
+- [MCP server](docs/mcp.md)
+- [Plugins](docs/plugins.md)

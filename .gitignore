@@ -28,9 +28,12 @@ investigations/
 .env.*
 !.env.example
 
-# Internal docs (not user-facing)
+# Internal planning notes (not user-facing)
 PLAN.md
-docs/
+
+# Agent framework (local working dir; not part of the project)
+.superpowers/
+.remember/
 
 # AI provider keys or tokens
 *-api-key*

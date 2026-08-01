@@ -1,6 +1,9 @@
 package ioc
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func has(inds []Indicator, typ, val string) bool {
 	for _, i := range inds {
@@ -132,5 +135,55 @@ func TestExtractDedupe(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("want 1 deduped ipv4, got %d", n)
+	}
+}
+
+func TestIPv4RejectsInvalidOctets(t *testing.T) {
+	// Out-of-range octets, empty octets, and partial forms must not be
+	// reported as IPv4 indicators even though they match the dotted-quad
+	// shape regex.
+	data := []byte(`999.999.999.999 256.1.1.1 1.256.1.1 1.1.256.1 1.1.1.256
+10.0.0 ..1.2.3 1.2.3. 1.2.3`)
+	inds := Extract(data)
+	for _, i := range inds {
+		if i.Type == "ipv4" {
+			t.Errorf("unexpected ipv4 indicator %q for invalid octets", i.Value)
+		}
+	}
+}
+
+func TestIPv4ExtractsValid(t *testing.T) {
+	// Leading-zero forms parse via net.ParseIP; ensure valid ones survive.
+	for _, s := range []string{"8.8.8.8", "127.0.0.1", "255.255.255.255", "0.0.0.0", "185.12.34.56"} {
+		if !has(Extract([]byte("peer "+s+" connected")), "ipv4", s) {
+			t.Errorf("expected %q to extract as ipv4", s)
+		}
+	}
+}
+
+// TestDomainNoFileExtensionFalsePositives reproduces the Sysmon JSON problem:
+// dotted filenames and paths (once.cmd, msiexec.exe, KERNEL32.DLL, prefetch
+// .pf) must not be reported as domains, while a real QueryName domain survives.
+func TestDomainNoFileExtensionFalsePositives(t *testing.T) {
+	data := []byte(`Image: C:\Windows\System32\cmd.exe
+Image: C:\Windows\System32\msiexec.exe
+Hashes: KERNEL32.DLL
+TargetFilename: C:\Windows\Prefetch\ONCE.CMD-9f1a2b3c.pf
+TargetFilename: C:\Users\x\AppData\Local\Temp\payload.tmp
+QueryName: evil.example.com
+BadHostname: bad.host.org`)
+	inds := Extract(data)
+	for _, i := range inds {
+		if i.Type == "domain" {
+			switch strings.ToLower(i.Value) {
+			case "cmd.exe", "once.cmd", "kernel32.dll", "msiexec.exe", "9f1a2b3c.pf", "payload.tmp", "tmp":
+				t.Errorf("false-positive domain %q (filename extension)", i.Value)
+			}
+		}
+	}
+	for _, want := range []string{"evil.example.com", "bad.host.org"} {
+		if !has(inds, "domain", want) {
+			t.Errorf("expected domain %q to survive extension filtering, got %v", want, inds)
+		}
 	}
 }
