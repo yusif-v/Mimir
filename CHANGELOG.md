@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sandbox `cp`** — stages files under `/work` (the exec-capable tmpfs)
   instead of noexec `/tmp`, so copied binaries can actually run in-container.
 - **cuckoo template** — category corrected to `malware`.
+- **REPL blank lines** — no more stray blank line on empty input or after
+  command output.
+- **README demo GIF** — regenerated from a real `asciinema` recording of the
+  REPL (previous GIF had corrupted/misaligned text from a synthetic frame
+  renderer).
 
 ### Security
 - Tool execution hardening (sandbox cap-drop ALL, no-new-privileges,
