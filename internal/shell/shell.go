@@ -155,7 +155,6 @@ func (a *App) Run() error {
 
 		line = strings.TrimSpace(line)
 		if line == "" {
-			fmt.Println()
 			continue
 		}
 
