@@ -166,7 +166,6 @@ func (a *App) Run() error {
 			}
 			fmt.Fprintf(os.Stderr, "%serror:%s %v\n", colorRed, colorReset, derr)
 		}
-		fmt.Println()
 	}
 }
 
