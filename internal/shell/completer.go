@@ -190,7 +190,7 @@ func complete(line string, s sources) ([][]rune, int) {
 		return nil, len([]rune(word))
 	case "case":
 		if pos == 1 {
-			return matchSuffixes(word, []string{"-n", "-o", "-c"})
+			return matchSuffixes(word, []string{"-n", "-o", "-c", "list", "templates"})
 		}
 		if pos == 2 && (completed[1] == "-o" || completed[1] == "-c") {
 			return matchSuffixes(word, s.caseNames)

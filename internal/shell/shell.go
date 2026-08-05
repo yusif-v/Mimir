@@ -138,6 +138,7 @@ func (a *App) Run() error {
 	fmt.Println(banner())
 
 	for {
+		fmt.Println()
 		fmt.Println(a.contextLine())
 		rl.SetPrompt(a.promptMarker())
 		line, err := a.rl.Readline()
@@ -338,8 +339,8 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %shelp%s       show this help\n", colorGreen, colorReset)
 	fmt.Printf("  %sexit%s       exit Mimir\n", colorGreen, colorReset)
 	fmt.Printf("  %sstatus%s     show current case status\n", colorGreen, colorReset)
-	fmt.Printf("  %scase%s       manage cases (-n new, -o open, -c close, templates)\n", colorGreen, colorReset)
-	fmt.Printf("  %scases%s      list all cases\n", colorGreen, colorReset)
+	fmt.Printf("  %scase%s       manage cases: -n new, -o open, -c close, list (all cases), templates\n", colorGreen, colorReset)
+	fmt.Printf("  %scases%s      alias for %scase list%s\n", colorGreen, colorReset, colorGreen, colorReset)
 	fmt.Printf("  %stools%s      list registered tools\n", colorGreen, colorReset)
 	fmt.Printf("  %sdashboard%s   interactive TUI: tool explorer with live status\n", colorGreen, colorReset)
 	fmt.Printf("  %srun%s        run a tool: run <name> [args...]\n", colorGreen, colorReset)
@@ -383,12 +384,14 @@ func (a *App) cmdStatus(args []string) error {
 
 func (a *App) cmdCase(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: case -n <name> [-t <template>] | case -o <name> | case -c | case templates")
+		return fmt.Errorf("usage: case -n <name> [-t <template>] | case -o <name> | case -c | case list | case templates")
 	}
 
 	action := args[0]
 
 	switch action {
+	case "list", "ls":
+		return a.cmdCases(args[1:])
 	case "-n":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: case -n <name> [-t <template>]")
