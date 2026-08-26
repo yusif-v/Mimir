@@ -192,7 +192,13 @@ func resolveDump(c *cases.Case, name string) (string, error) {
 		}
 	}
 	if chosen == nil {
-		chosen = &evs[len(evs)-1] // most recent
+		// No tagged match: pick the most recently added evidence
+		// (Evidence() is name-sorted, so compare AddedAt timestamps).
+		for i := range evs {
+			if chosen == nil || evs[i].AddedAt > chosen.AddedAt {
+				chosen = &evs[i]
+			}
+		}
 	}
 	return filepath.Join(c.Path, "evidence", chosen.Name), nil
 }

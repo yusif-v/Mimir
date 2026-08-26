@@ -321,9 +321,9 @@ func (a *App) dispatch(line string) error {
 	case "sandbox":
 		return a.cmdSandbox(args)
 	case "sleuthkit":
-		return a.cmdSleuthkit(args)
+		return a.cmdDisk(args)
 	case "regripper":
-		return a.cmdRegRipper(args)
+		return a.cmdRegHives(args)
 	case "report":
 		return a.cmdReport(args)
 	case "volatility", "mem":
@@ -361,8 +361,8 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
 	fmt.Printf("  %splugin%s      manage plugins: list, run <name>, info <name>\n", colorGreen, colorReset)
 	fmt.Printf("  %ssandbox%s     manage sandboxes: create, run, shell, logs, report, cp, destroy, list\n", colorGreen, colorReset)
-	fmt.Printf("  %ssleuthkit%s     disk forensic analysis: fls, fsstat, icat, mmls, blkcalc, istat\n", colorGreen, colorReset)
-	fmt.Printf("  %sregripper%s    Windows registry hive analysis (auto-detect, -p plugin, --json)\n", colorGreen, colorReset)
+	fmt.Printf("  %sdisk%s        disk forensics (SleuthKit): disk <tool> [-i <image>] — mmls, fls, icat, fsstat, ...\n", colorGreen, colorReset)
+	fmt.Printf("  %sregripper%s    Windows registry hive analysis: regripper [hive] [-p plugin] [--json]\n", colorGreen, colorReset)
 	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
 	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [--offline] [args...]\n", colorGreen, colorReset)
 	fmt.Printf("\n  %smimir mcp%s   run outside the shell: Run Mimir as an MCP server (stdio, or --http <addr>)\n", colorGreen, colorReset)
@@ -2198,102 +2198,6 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-func (a *App) cmdSleuthkit(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: sleuthkit <tool> [args...]\nTools: fls, fsstat, icat, mmls, blkcalc, istat, blkls, blkcat, dcat, dstat, ffind, hfind, ifind, ils, img_stat, jcat, jls, sigfind, sstat")
-	}
-	tool := args[0]
-	toolArgs := args[1:]
-
-	// Validate tool name
-	validTools := map[string]bool{
-		"fls": true, "fsstat": true, "icat": true, "mmls": true,
-		"blkcalc": true, "istat": true, "blkls": true, "blkcat": true,
-		"dcat": true, "dstat": true, "ffind": true, "hfind": true,
-		"ifind": true, "ils": true, "img_stat": true, "jcat": true,
-		"jls": true, "sigfind": true, "sstat": true,
-	}
-	if !validTools[tool] {
-		return fmt.Errorf("unknown sleuthkit tool: %s", tool)
-	}
-
-	// Build docker run command
-	c := a.Cases.Current()
-	if c == nil {
-		return fmt.Errorf("no case is open")
-	}
-
-	image := "dfir-sleuthkit:latest"
-	evidenceDir := filepath.Join(c.Path, "evidence")
-	outputDir := filepath.Join(c.Path, "output", "sleuthkit")
-	os.MkdirAll(outputDir, 0755)
-
-	dockerArgs := []string{
-		"run", "--rm",
-		"-v", fmt.Sprintf("%s:/evidence:ro", evidenceDir),
-		"-v", fmt.Sprintf("%s:/output:rw", outputDir),
-		image,
-		tool,
-	}
-	dockerArgs = append(dockerArgs, toolArgs...)
-
-	cmd := exec.Command("docker", dockerArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func (a *App) cmdRegRipper(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: regripper <hive-file> [-p <plugin>] [--json]")
-	}
-
-	hiveFile := args[0]
-	plugin := ""
-	outputJSON := false
-
-	for i := 1; i < len(args); i++ {
-		if args[i] == "-p" && i+1 < len(args) {
-			plugin = args[i+1]
-			i++
-		} else if args[i] == "--json" {
-			outputJSON = true
-		}
-	}
-
-	c := a.Cases.Current()
-	if c == nil {
-		return fmt.Errorf("no case is open")
-	}
-
-	image := "dfir-regripper:latest"
-	evidenceDir := filepath.Join(c.Path, "evidence")
-	outputDir := filepath.Join(c.Path, "output", "regripper")
-	os.MkdirAll(outputDir, 0755)
-
-	// Build rip.pl command
-	ripArgs := []string{"-r", fmt.Sprintf("/evidence/%s", hiveFile)}
-	if plugin != "" {
-		ripArgs = append(ripArgs, "-p", plugin)
-	}
-	if outputJSON {
-		ripArgs = append(ripArgs, "-j")
-	}
-
-	dockerArgs := []string{
-		"run", "--rm",
-		"-v", fmt.Sprintf("%s:/evidence:ro", evidenceDir),
-		"-v", fmt.Sprintf("%s:/output:rw", outputDir),
-		image,
-	}
-	dockerArgs = append(dockerArgs, ripArgs...)
-
-	cmd := exec.Command("docker", dockerArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
 // splitArgs splits a command line string into arguments, respecting quotes.
 func splitArgs(line string) []string {
 	var args []string
@@ -2395,6 +2299,34 @@ func captureInto(c *cases.Case, tool, command, dump, out string) error {
 				Time:   now,
 			}); err != nil {
 				return fmt.Errorf("append net-hint: %w", err)
+			}
+		}
+	}
+
+	// SleuthKit tool-aware hints (mmls partitions / fls deleted entries).
+	if tool == "sleuthkit" {
+		for _, h := range diskHints(strings.Fields(command)[0], out) {
+			if err := c.AppendIOC(cases.IOCRecord{
+				Type:   h.typ,
+				Value:  h.val,
+				Source: tool + ":" + command + dumpSuffix(dump),
+				Time:   now,
+			}); err != nil {
+				return fmt.Errorf("append disk-hint: %w", err)
+			}
+		}
+	}
+
+	// RegRipper hints (USB devices, autorun/service paths, Run keys).
+	if tool == "regripper" {
+		for _, h := range regripperHints(out) {
+			if err := c.AppendIOC(cases.IOCRecord{
+				Type:   h.typ,
+				Value:  h.val,
+				Source: tool + ":" + command + dumpSuffix(dump),
+				Time:   now,
+			}); err != nil {
+				return fmt.Errorf("append reg-hint: %w", err)
 			}
 		}
 	}

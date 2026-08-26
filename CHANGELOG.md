@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`disk` (first-class SleuthKit)** — `disk <tool> [-i <image>] [args...]`
+  (alias: `sleuthkit`). Image resolution like the volatility command:
+  `-i` absolute/relative/substring, auto-select evidence tagged
+  `disk-image`, else most recent. Output is captured to the timeline via
+  `captureInto`, scanned for IOCs, and parsed for tool-specific hints:
+  `partition` indicators from `mmls`, `deleted_file` indicators from `fls`.
+
+### Changed
+- **RegRipper upgraded to a first-class command** — `regripper [hive]
+  [-p plugin] [--json]` now resolves the hive automatically (positional /
+  `registry-hive` tag / most recent), mounts only that hive read-only,
+  and feeds output through `captureInto`: timeline event, generic IOCs, and
+  registry hints (`usb_device` USBSTOR keys, `winpath` executable paths,
+  `autostart` Run/RunOnce lines).
+
+### Fixed
+- **Auto-select fallback picked wrong evidence** — both dump and new-file
+  resolution fell back to "last item of Evidence()", but Evidence() is
+  name-sorted; they now compare `AddedAt` timestamps to pick the genuinely
+  most recently added item.
+
 ## [0.8.3] - 2026-08-01
 
 ### Added
