@@ -75,6 +75,54 @@ func TestCmdAnalyzeSkipsUninstalledTools(t *testing.T) {
 	}
 }
 
+// TestCmdAnalyzeReusesExistingEvidenceByHash verifies the hash-dedup path in
+// cmdAnalyze: if the exact same content is already registered as evidence
+// under one name, analyzing a different file with identical bytes must reuse
+// the existing evidence entry (matched via FindEvidenceByHash) rather than
+// registering a second, duplicate entry under the new basename.
+func TestCmdAnalyzeReusesExistingEvidenceByHash(t *testing.T) {
+	app := newTestApp(t)
+	if _, err := app.Cases.Create("t"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := app.Cases.Open("t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := append([]byte("MZ"), make([]byte, 62)...)
+
+	dir := t.TempDir()
+	original := filepath.Join(dir, "original.exe")
+	if err := os.WriteFile(original, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.evidenceAdd(c, []string{original}); err != nil {
+		t.Fatalf("evidenceAdd(original): %v", err)
+	}
+
+	before := len(c.Evidence())
+
+	renamed := filepath.Join(dir, "renamed.exe")
+	if err := os.WriteFile(renamed, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := app.cmdAnalyze([]string{renamed}); err != nil {
+		t.Fatalf("cmdAnalyze(renamed, same content): %v", err)
+	}
+
+	after := len(c.Evidence())
+	if after != before {
+		t.Errorf("expected no new evidence entry for same-content rename: before=%d after=%d", before, after)
+	}
+	for _, e := range c.Evidence() {
+		if e.Name == "renamed.exe" {
+			t.Error("expected no evidence entry named renamed.exe — FindEvidenceByHash reuse should have fired")
+		}
+	}
+}
+
 func TestStaticToolsForKind(t *testing.T) {
 	tests := []struct {
 		kind string
