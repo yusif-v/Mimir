@@ -117,8 +117,16 @@ recorded to the timeline and scanned for IOCs exactly like a manual `run`.
 capa's ATT&CK-mapped capabilities are recorded as `capability` IOCs (e.g.
 `T1055 Process Injection`) instead of raw text.
 
-`yara` needs a rules file: pass `--rules <path>`, or place `rules.yar` in the
-case directory. Without either, yara is skipped with a warning.
+`yara` needs a rules file. All tool runs happen in Docker containers that
+only have `<case>/evidence/` and `<case>/output/` mounted, so the rules file
+must live under `<case>/evidence/` for yara to be able to read it:
+
+- Default: place `rules.yar` in `<case>/evidence/`.
+- `--rules <path>`: if `<path>` is already inside `<case>/evidence/`, it's
+  used as-is; otherwise it's copied into `<case>/evidence/` under its
+  basename first, then referenced from there.
+
+Without a resolvable rules file, yara is skipped with a warning.
 
 A tool that isn't installed is skipped with a warning (`install <name>` to
 add it) — `analyze` always finishes and reports what it could gather.
@@ -126,8 +134,10 @@ add it) — `analyze` always finishes and reports what it could gather.
 Example:
 
 ```
-evidence add ram.bin --tag memory-dump
 install capa
 build capa
 analyze suspicious.exe
 ```
+
+`analyze` registers the sample as case evidence automatically — no need to
+run `evidence add` first.

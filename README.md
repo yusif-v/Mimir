@@ -116,6 +116,7 @@ This writes a default `~/.mimir/config.yaml`. See [configuration](docs/overview.
 | `sleuthkit <tool>` | Disk forensics: fls, fsstat, icat, mmls, istat, ... |
 | `regripper <hive>` | Windows registry hive analysis (`-p` plugin, `--json`) |
 | `volatility <plugin>` / `mem` | Memory forensics (Volatility 3) |
+| `analyze <path> [--rules <path>]` | Static malware analysis: auto yara/capa/oletools by file type |
 | `report` | Generate an incident report (`md` or `pdf`) |
 | `dashboard` / `dash` | Interactive TUI tool explorer |
 | `clear` / `exit` / `quit` | Utility |

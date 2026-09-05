@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`analyze` (static analysis orchestrator)** — `analyze <path> [--rules
+  <path>]` auto-detects a sample's file type by magic bytes (PE, ELF, legacy
+  OLE and OOXML Office docs) and runs the applicable static tools
+  (`yara`/`capa` for PE/ELF, `yara`/`oletools` for Office docs) against it.
+  The sample is registered as case evidence automatically, each tool's
+  output is recorded to the timeline and scanned for IOCs via `captureInto`
+  and saved to `<case>/output/`, and capa's ATT&CK-mapped capabilities are
+  recorded as structured `capability` IOCs. Missing tools are skipped with a
+  warning rather than aborting the run.
 - **`disk` (first-class SleuthKit)** — `disk <tool> [-i <image>] [args...]`
   (alias: `sleuthkit`). Image resolution like the volatility command:
   `-i` absolute/relative/substring, auto-select evidence tagged
