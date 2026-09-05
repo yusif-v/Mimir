@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // Kind is a coarse file-type classification.
@@ -42,6 +43,11 @@ func Detect(path string) (Kind, error) {
 	}
 	defer f.Close()
 
+	info, err := f.Stat()
+	if err != nil {
+		return Unknown, fmt.Errorf("stat %s: %w", path, err)
+	}
+
 	buf := make([]byte, sniffLen)
 	n, err := io.ReadFull(f, buf)
 
@@ -57,15 +63,19 @@ func Detect(path string) (Kind, error) {
 		return Unknown, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	// For zip-prefixed files, we must read the entire file: zip's central
-	// directory lives at EOF, not in the first 8KB. For PE/ELF/OLE, the sniff
-	// buffer is sufficient since their magic bytes are at the beginning.
+	// For zip-prefixed files, the zip central directory lives at EOF, not in
+	// the first 8KB, so we need random access to the whole file to classify
+	// it correctly. Rather than buffering the entire file into memory (a
+	// multi-GB malware sample would make that a real DoS vector, and this
+	// package's whole point is bounded reads), use the still-open *os.File
+	// as an io.ReaderAt: archive/zip.NewReader only reads the central
+	// directory and the specific entries it needs, never the full file.
 	if bytes.HasPrefix(buf[:n], zipPrefix) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return Unknown, fmt.Errorf("read %s: %w", path, err)
+		size := info.Size()
+		if isOOXMLReaderAt(f, size) {
+			return OOXML, nil
 		}
-		return DetectBytes(data), nil
+		return Unknown, nil
 	}
 
 	return DetectBytes(buf[:n]), nil
@@ -97,7 +107,17 @@ func DetectBytes(data []byte) Kind {
 // document: it must actually parse as a zip (a bare 4-byte prefix match
 // isn't enough) and contain the telltale OOXML entries.
 func isOOXML(data []byte) bool {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	return isOOXMLReaderAt(bytes.NewReader(data), int64(len(data)))
+}
+
+// isOOXMLReaderAt is the shared implementation behind isOOXML (in-memory
+// buffers) and Detect (files on disk): archive/zip.NewReader only needs
+// random access via io.ReaderAt — it reads the central directory and the
+// specific entries it needs, not the whole underlying data — so both
+// callers can share this without either one being forced to buffer a full
+// file into memory.
+func isOOXMLReaderAt(ra io.ReaderAt, size int64) bool {
+	zr, err := zip.NewReader(ra, size)
 	if err != nil {
 		return false
 	}
@@ -105,7 +125,7 @@ func isOOXML(data []byte) bool {
 		switch {
 		case f.Name == "[Content_Types].xml":
 			return true
-		case len(f.Name) > 5 && (f.Name[:5] == "word/" || f.Name[:3] == "xl/" || f.Name[:4] == "ppt/"):
+		case strings.HasPrefix(f.Name, "word/"), strings.HasPrefix(f.Name, "xl/"), strings.HasPrefix(f.Name, "ppt/"):
 			return true
 		}
 	}
