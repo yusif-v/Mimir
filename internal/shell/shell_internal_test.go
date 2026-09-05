@@ -743,6 +743,25 @@ func TestCaptureIntoVolatilityHints(t *testing.T) {
 	}
 }
 
+func TestCaptureIntoCapaHints(t *testing.T) {
+	c := &cases.Case{Name: "cap", Path: t.TempDir()}
+	if err := c.Scaffold(); err != nil {
+		t.Fatal(err)
+	}
+	if err := captureInto(c, "capa", "capa -j sample.exe", "sample.exe", capaFixtureJSON); err != nil {
+		t.Fatalf("captureInto: %v", err)
+	}
+	var gotCapability bool
+	for _, ic := range c.IOCs() {
+		if ic.Type == "capability" && ic.Value == "T1055 Process Injection" {
+			gotCapability = true
+		}
+	}
+	if !gotCapability {
+		t.Error("expected capa capability hint (T1055) from captureInto")
+	}
+}
+
 func TestSuggestToolByExtension(t *testing.T) {
 	cases := []struct {
 		path string

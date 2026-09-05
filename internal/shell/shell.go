@@ -2273,6 +2273,20 @@ func captureInto(c *cases.Case, tool, command, dump, out string) error {
 		}
 	}
 
+	// capa ATT&CK-mapped capability hints.
+	if tool == "capa" {
+		for _, h := range capaHints(out) {
+			if err := c.AppendIOC(cases.IOCRecord{
+				Type:   h.typ,
+				Value:  h.val,
+				Source: tool + ":" + command + dumpSuffix(dump),
+				Time:   now,
+			}); err != nil {
+				return fmt.Errorf("append capa hint: %w", err)
+			}
+		}
+	}
+
 	// Volatility plugin-aware hints (commands / NTLM hashes).
 	if strings.Contains(strings.ToLower(command), "vol ") || strings.ToLower(tool) == "volatility" {
 		for _, h := range volatilityHints(command, out) {
