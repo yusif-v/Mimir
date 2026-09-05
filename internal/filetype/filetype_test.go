@@ -100,3 +100,75 @@ func TestDetectMissingFile(t *testing.T) {
 		t.Error("expected error for missing file")
 	}
 }
+
+func TestDetectOOXMLLargeFile(t *testing.T) {
+	// Create an OOXML-shaped zip larger than sniffLen (8KB) to test
+	// that Detect reads the entire file, not just the first 8KB sniff buffer.
+	// Zip's central directory lives at EOF, so truncation breaks parsing.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.docx")
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	// Add [Content_Types].xml (OOXML marker)
+	f, err := zw.Create("[Content_Types].xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("<Types/>")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add word/document.xml (OOXML marker)
+	f2, err := zw.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f2.Write([]byte("<doc/>")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a large dummy entry to push the file well past 8KB.
+	// sniffLen=8192, so we want the archive to be noticeably larger.
+	f3, err := zw.Create("word/dummy.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dummy := make([]byte, 20000) // 20KB of padding
+	if _, err := f3.Write(dummy); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Detect(path)
+	if err != nil {
+		t.Fatalf("Detect large OOXML: %v", err)
+	}
+	if got != OOXML {
+		t.Errorf("Detect(large.docx): got %s, want %s", got, OOXML)
+	}
+}
+
+func TestDetectEmptyFile(t *testing.T) {
+	// An empty (0-byte) file should classify as Unknown, not error.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.bin")
+	if err := os.WriteFile(path, []byte{}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Detect(path)
+	if err != nil {
+		t.Errorf("Detect(empty file): got error %v, want (Unknown, nil)", err)
+	}
+	if got != Unknown {
+		t.Errorf("Detect(empty file): got %s, want %s", got, Unknown)
+	}
+}

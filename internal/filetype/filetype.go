@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -42,10 +43,31 @@ func Detect(path string) (Kind, error) {
 	defer f.Close()
 
 	buf := make([]byte, sniffLen)
-	n, err := f.Read(buf)
-	if err != nil && n == 0 {
+	n, err := io.ReadFull(f, buf)
+
+	// Handle empty files: 0 bytes read is not an error condition.
+	if n == 0 {
+		// File was truly empty (EOF reached immediately), classify as Unknown.
+		return Unknown, nil
+	}
+
+	// io.ReadFull returns ErrUnexpectedEOF if the file is shorter than sniffLen.
+	// This is not an error for us; we got n bytes, which is sufficient.
+	if err != nil && err != io.ErrUnexpectedEOF {
 		return Unknown, fmt.Errorf("read %s: %w", path, err)
 	}
+
+	// For zip-prefixed files, we must read the entire file: zip's central
+	// directory lives at EOF, not in the first 8KB. For PE/ELF/OLE, the sniff
+	// buffer is sufficient since their magic bytes are at the beginning.
+	if bytes.HasPrefix(buf[:n], zipPrefix) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return Unknown, fmt.Errorf("read %s: %w", path, err)
+		}
+		return DetectBytes(data), nil
+	}
+
 	return DetectBytes(buf[:n]), nil
 }
 
