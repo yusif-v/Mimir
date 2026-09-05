@@ -39,7 +39,7 @@ func (c *Completer) Do(line []rune, pos int) ([][]rune, int) {
 var commandNames = []string{
 	"help", "exit", "quit", "status", "case", "cases", "tools",
 	"run", "install", "build", "use", "note", "evidence", "ev", "clear", "timeline", "ioc", "correlate", "search", "disk",
-	"export", "import",
+	"export", "import", "analyze",
 }
 
 // matchSuffixes implements the readline AutoCompleter.Do contract: for each

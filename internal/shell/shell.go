@@ -286,6 +286,8 @@ func (a *App) dispatch(line string) error {
 		return a.cmdTools(args)
 	case "run":
 		return a.cmdRun(args)
+	case "analyze":
+		return a.cmdAnalyze(args)
 	case "install":
 		return a.cmdInstall(args)
 	case "build":
@@ -365,6 +367,7 @@ func (a *App) cmdHelp(args []string) error {
 	fmt.Printf("  %sregripper%s    Windows registry hive analysis: regripper [hive] [-p plugin] [--json]\n", colorGreen, colorReset)
 	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
 	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [--offline] [args...]\n", colorGreen, colorReset)
+	fmt.Printf("  %sanalyze%s    static malware analysis: analyze <path> [--rules <path>] (auto yara/capa/oletools)\n", colorGreen, colorReset)
 	fmt.Printf("\n  %smimir mcp%s   run outside the shell: Run Mimir as an MCP server (stdio, or --http <addr>)\n", colorGreen, colorReset)
 	return nil
 }

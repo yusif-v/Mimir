@@ -98,3 +98,36 @@ regripper -p userassist
 regripper NTUSER.DAT --json
 regripper evidence/SYSTEM --json
 ```
+
+## Static Analysis (analyze)
+
+```
+analyze <path> [--rules <path>]
+```
+
+Auto-detects the sample's file type by magic bytes (PE, ELF, legacy OLE
+Office docs, OOXML Office docs) and runs the applicable static tools:
+
+- **PE/ELF**: `yara`, `capa`
+- **OLE/OOXML** (Office documents): `yara`, `oletools` (`olevba`)
+- **unknown**: `yara` only
+
+The sample is registered as case evidence first. Each tool's output is
+recorded to the timeline and scanned for IOCs exactly like a manual `run`.
+capa's ATT&CK-mapped capabilities are recorded as `capability` IOCs (e.g.
+`T1055 Process Injection`) instead of raw text.
+
+`yara` needs a rules file: pass `--rules <path>`, or place `rules.yar` in the
+case directory. Without either, yara is skipped with a warning.
+
+A tool that isn't installed is skipped with a warning (`install <name>` to
+add it) — `analyze` always finishes and reports what it could gather.
+
+Example:
+
+```
+evidence add ram.bin --tag memory-dump
+install capa
+build capa
+analyze suspicious.exe
+```
