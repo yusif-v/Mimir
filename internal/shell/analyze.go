@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/yusif-v/mimir/internal/builtins"
 	"github.com/yusif-v/mimir/internal/filetype"
+	"github.com/yusif-v/mimir/internal/ioc"
+	"github.com/yusif-v/mimir/internal/tools"
 	"github.com/yusif-v/mimir/internal/ui"
 )
 
@@ -30,6 +33,13 @@ func staticToolNames(kind string) []string {
 	return staticToolsFor[filetype.Kind(kind)]
 }
 
+// errToolNotInstalled is a sentinel returned by runAnalyzeTool when toolName
+// resolves to neither a builtin nor an installed catalog tool. Callers use
+// errors.Is against this rather than matching on error text, so a tool's own
+// stderr happening to contain the phrase "not installed" can never be
+// misread as the skip condition.
+var errToolNotInstalled = errors.New("tool not installed")
+
 // analyzeToolResult is one row of the summary table cmdAnalyze prints at the
 // end of a run.
 type analyzeToolResult struct {
@@ -39,16 +49,35 @@ type analyzeToolResult struct {
 	capabilities int
 }
 
+// buildToolArgs builds the argument list for one of the fixed static
+// analysis tools. rulesContainerPath and containerPath are already
+// container-mounted paths (of the form "/evidence/<name>") — analyze always
+// runs its tools via Docker (see runAnalyzeTool), so every path handed to a
+// tool must resolve inside the container, never on the host filesystem.
+// rulesContainerPath is only used by yara and may be "" for capa/oletools.
+func buildToolArgs(toolName, rulesContainerPath, containerPath string) []string {
+	switch toolName {
+	case "yara":
+		return []string{rulesContainerPath, containerPath}
+	case "capa":
+		return []string{"-j", containerPath}
+	case "oletools":
+		return []string{"olevba", containerPath}
+	default:
+		return nil
+	}
+}
+
 func (a *App) cmdAnalyze(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
 		return fmt.Errorf("no case is open")
 	}
 
-	var rulesPath, sample string
+	var rulesArg, sample string
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--rules" && i+1 < len(args) {
-			rulesPath = args[i+1]
+			rulesArg = args[i+1]
 			i++
 			continue
 		}
@@ -65,10 +94,31 @@ func (a *App) cmdAnalyze(args []string) error {
 		return fmt.Errorf("%s is not a regular file", sample)
 	}
 
-	if rulesPath == "" {
-		candidate := filepath.Join(c.Path, "rules.yar")
+	// Resolve the yara rules file to something that lives under
+	// <case>/evidence/, since that's the directory actually bind-mounted to
+	// /evidence in the container (see internal/catalog/templates/yara). The
+	// default lookup location is <case>/evidence/rules.yar. An explicit
+	// --rules path outside that directory is copied in under its basename
+	// first — mirroring evidenceAdd's copy-in behavior — so yara always
+	// receives a path that resolves inside the container.
+	evidenceDir := filepath.Join(c.Path, "evidence")
+	rulesContainerPath := ""
+	switch {
+	case rulesArg != "":
+		rulesAbs, _ := filepath.Abs(rulesArg)
+		evidenceDirAbs, _ := filepath.Abs(evidenceDir)
+		rulesBase := filepath.Base(rulesArg)
+		dest := filepath.Join(evidenceDir, rulesBase)
+		if filepath.Dir(rulesAbs) != evidenceDirAbs {
+			if err := copyFile(rulesArg, dest); err != nil {
+				return fmt.Errorf("copy rules file into case evidence: %w", err)
+			}
+		}
+		rulesContainerPath = "/evidence/" + rulesBase
+	default:
+		candidate := filepath.Join(evidenceDir, "rules.yar")
 		if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() {
-			rulesPath = candidate
+			rulesContainerPath = "/evidence/rules.yar"
 		}
 	}
 
@@ -99,26 +149,18 @@ func (a *App) cmdAnalyze(args []string) error {
 	fmt.Printf("%s: detected %s%s%s\n", name, colorCyan, kind, colorReset)
 
 	var results []analyzeToolResult
-	for _, toolName := range staticToolsFor[kind] {
-		if toolName == "yara" && rulesPath == "" {
-			fmt.Fprintf(os.Stderr, "%swarning:%s no yara rules available (pass --rules or place rules.yar in the case dir) — skipping yara\n", colorYellow, colorReset)
+	for _, toolName := range staticToolNames(string(kind)) {
+		if toolName == "yara" && rulesContainerPath == "" {
+			fmt.Fprintf(os.Stderr, "%swarning:%s no yara rules available (pass --rules or place rules.yar in <case>/evidence/) — skipping yara\n", colorYellow, colorReset)
 			results = append(results, analyzeToolResult{tool: "yara", status: "skipped"})
 			continue
 		}
 
-		var toolArgs []string
-		switch toolName {
-		case "yara":
-			toolArgs = []string{rulesPath, containerPath}
-		case "capa":
-			toolArgs = []string{"-j", containerPath}
-		case "oletools":
-			toolArgs = []string{"olevba", containerPath}
-		}
+		toolArgs := buildToolArgs(toolName, rulesContainerPath, containerPath)
 
 		out, runErr := a.runAnalyzeTool(toolName, toolArgs)
 		if runErr != nil {
-			if strings.Contains(runErr.Error(), "not installed") {
+			if errors.Is(runErr, errToolNotInstalled) {
 				fmt.Fprintf(os.Stderr, "%swarning:%s tool %q not installed — run: install %s\n", colorYellow, colorReset, toolName, toolName)
 				results = append(results, analyzeToolResult{tool: toolName, status: "skipped"})
 				continue
@@ -128,24 +170,31 @@ func (a *App) cmdAnalyze(args []string) error {
 			continue
 		}
 
+		var hints []capaHint
 		if toolName == "capa" {
-			hints := capaHints(out)
+			hints = capaHints(out)
 			fmt.Printf("%s: %d capabilit%s matched\n", toolName, len(hints), pluralIES(len(hints)))
 		} else {
 			fmt.Print(out)
 		}
 
-		beforeIOCs := len(c.IOCs())
 		command := toolName + " " + strings.Join(toolArgs, " ")
 		if err := captureInto(c, toolName, command, name, out); err != nil {
 			fmt.Fprintf(os.Stderr, "%swarning:%s record %s output: %v\n", colorYellow, colorReset, toolName, err)
 		}
-		added := len(c.IOCs()) - beforeIOCs
+		if _, err := a.Output.Record(toolName, out, c.Path); err != nil {
+			fmt.Fprintf(os.Stderr, "%swarning:%s save %s output: %v\n", colorYellow, colorReset, toolName, err)
+		}
 
-		res := analyzeToolResult{tool: toolName, status: "ok", iocCount: added}
+		// Counts here reflect what THIS run's output actually contains, not
+		// the case-wide AppendIOC dedup delta — re-running analyze on a
+		// sample already in the case would otherwise report 0 for every
+		// tool even though everything ran fine.
+		res := analyzeToolResult{tool: toolName, status: "ok"}
 		if toolName == "capa" {
-			res.capabilities = added
-			res.iocCount = 0
+			res.capabilities = len(hints)
+		} else {
+			res.iocCount = len(ioc.Extract([]byte(out)))
 		}
 		results = append(results, res)
 	}
@@ -155,30 +204,39 @@ func (a *App) cmdAnalyze(args []string) error {
 }
 
 // runAnalyzeTool resolves toolName (builtin or installed catalog tool) and
-// runs it, returning its stdout. A tool that isn't installed/registered
-// returns an error containing "not installed" so callers can distinguish a
-// missing tool (skip) from an execution failure (warn).
+// runs it, returning its stdout. analyze always builds container-mounted
+// evidence paths (/evidence/<name>), so a tool run locally on the host
+// (e.g. yara, which has a [local] cmd in its catalog template) would be
+// handed a path that doesn't exist on the host filesystem at all. To keep
+// execution consistent with the paths analyze constructs, any catalog tool
+// is forced onto the Docker path here regardless of local-binary
+// availability. A tool that isn't installed/registered returns
+// errToolNotInstalled (wrapped) so callers can distinguish a missing tool
+// (skip) from an execution failure (warn).
 func (a *App) runAnalyzeTool(toolName string, args []string) (string, error) {
 	if builtins.Has(toolName) {
 		result := a.Runner.RunBuiltin(toolName, args)
-		if !result.Success() {
-			if result.Error != nil {
-				return result.Stdout, result.Error
-			}
-			return result.Stdout, fmt.Errorf("exit code %d: %s", result.ReturnCode, result.Stderr)
-		}
-		return result.Stdout, nil
+		return resultOutput(result)
 	}
 
 	tool, ok := a.Tools.Get(toolName)
 	if !ok {
-		return "", fmt.Errorf("tool %q not installed", toolName)
+		return "", fmt.Errorf("tool %q: %w", toolName, errToolNotInstalled)
 	}
+	runTool := *tool
+	runTool.LocalCmd = "" // force Docker: see doc comment above.
+
 	casePath := ""
 	if c := a.Cases.Current(); c != nil {
 		casePath = c.Path
 	}
-	result := a.Runner.Run(tool, args, casePath)
+	result := a.Runner.Run(&runTool, args, casePath)
+	return resultOutput(result)
+}
+
+// resultOutput unwraps a *tools.Result into (stdout, error), used by both
+// the builtin and catalog-tool branches of runAnalyzeTool.
+func resultOutput(result *tools.Result) (string, error) {
 	if !result.Success() {
 		if result.Error != nil {
 			return result.Stdout, result.Error
