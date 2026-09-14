@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-09-14
+
 ### Added
 - **`analyze` (static analysis orchestrator)** — `analyze <path> [--rules
   <path>]` auto-detects a sample's file type by magic bytes (PE, ELF, legacy
@@ -306,4 +308,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/yusif-v/Mimir/compare/v0.3.0...v0.4.0
 [0.5.0]: https://github.com/yusif-v/Mimir/compare/v0.4.0...v0.5.0
 [0.6.0]: https://github.com/yusif-v/Mimir/compare/v0.5.0...v0.6.0
-[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.6.0...HEAD
+[0.8.2]: https://github.com/yusif-v/Mimir/compare/v0.8.1...v0.8.2
+[0.8.3]: https://github.com/yusif-v/Mimir/compare/v0.8.2...v0.8.3
+[0.8.4]: https://github.com/yusif-v/Mimir/compare/v0.8.3...v0.8.4
+[Unreleased]: https://github.com/yusif-v/Mimir/compare/v0.8.4...HEAD

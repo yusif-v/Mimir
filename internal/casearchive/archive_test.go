@@ -95,7 +95,7 @@ func TestExportFullProvenance(t *testing.T) {
 	_ = c.AppendEvent(cases.TimelineEvent{Type: "tool_run", Timestamp: "2026-07-12T00:00:00Z", Payload: map[string]any{"tool": "volatility", "command": "vol windows.netscan"}})
 
 	out := filepath.Join(t.TempDir(), "p1.tar.gz")
-	if err := ExportFull(c, out, true, "0.7.5"); err != nil {
+	if err := ExportFull(c, out, true, "0.8.4"); err != nil {
 		t.Fatalf("ExportFull: %v", err)
 	}
 
@@ -125,8 +125,8 @@ func TestExportFullProvenance(t *testing.T) {
 	if !found {
 		t.Fatal("manifest.json not found in archive")
 	}
-	if man.Mimir != "0.7.5" {
-		t.Errorf("want mimir_version 0.7.5, got %q", man.Mimir)
+	if man.Mimir != "0.8.4" {
+		t.Errorf("want mimir_version 0.8.4, got %q", man.Mimir)
 	}
 	if len(man.Indicators) != 1 || man.Indicators[0].Value != "1.2.3.4" {
 		t.Errorf("expected 1 indicator 1.2.3.4, got %+v", man.Indicators)
