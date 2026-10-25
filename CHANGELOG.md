@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`tools` output is now an aligned table.** `INSTALLED`, `AVAILABLE` and
+  `BUILT-IN` were rendered as hand-rolled `Printf` lines with hardcoded widths, so
+  `disk-forensics` (14 chars) overflowed the `%-12s` category field and the
+  description column shifted right. They now build `ui.Table` output with a
+  visible `DESCRIPTION` column — box borders on a TTY, plain space-aligned columns
+  when piped.
+- **`ui.Table` mis-measured ANSI-coloured cells.** `displayWidth` skipped only the
+  `ESC` byte and then counted `[`, the digits and `m` as printable, so a colourised
+  cell measured 7 columns too wide and broke its column alignment. It now consumes
+  the whole ANSI CSI sequence. Measured before the fix:
+  `displayWidth("\033[32myara\033[0m")` returned 11, want 4.
+
+### Build
+- **`go.sum` is now tracked.** It was listed in `.gitignore`, so a fresh clone
+  could not build without `go mod tidy` and failed with `missing go.sum entry` for
+  9 packages. `go.mod` is now reconciled with what the code imports —
+  `github.com/alexmullins/zip`, `github.com/bodgit/sevenzip` and
+  `github.com/docker/go-connections` promoted from `// indirect` to direct.
+
 ## [0.8.4] - 2026-09-14
 
 ### Added
