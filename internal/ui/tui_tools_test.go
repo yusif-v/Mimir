@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -486,6 +487,237 @@ func TestToolExplorerSearchNoMatchesKeepsChrome(t *testing.T) {
 	for _, want := range []string{"Tools", "[1] All", "[q] Quit", "0 tools", "Search: zzz"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("empty search should keep chrome %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestToolExplorerDetailExpandsAndCollapses(t *testing.T) {
+	desc := "memory forensics with volatility three including process enumeration and " +
+		"network artefacts and a distinctive expansiontail marker"
+	entries := []ToolEntry{
+		{Name: "volatility", Description: desc, Category: "forensics", Source: SourceAvailable,
+			Status: tools.StatusNotBuilt, Runs: 7, Tags: []string{"docker", "memory"}},
+		{Name: "hash", Description: "digests", Category: "hashing", Source: SourceBuiltin, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+
+	collapsed := model.View()
+	if strings.Contains(collapsed, "Description:") {
+		t.Fatalf("detail labels shown before expansion:\n%s", collapsed)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	expanded := model.View()
+	for _, want := range []string{"Description:", "Tags:", "Source:", "Status:", "Runs:", "Category:", "expansiontail"} {
+		if !strings.Contains(expanded, want) {
+			t.Errorf("expanded row missing %q:\n%s", want, expanded)
+		}
+	}
+	for _, want := range []string{"forensics", "available", "not built", "7", "docker, memory"} {
+		if !strings.Contains(expanded, want) {
+			t.Errorf("expanded detail missing %q:\n%s", want, expanded)
+		}
+	}
+	for n, line := range strings.Split(expanded, "\n") {
+		if got := displayWidth(line); got > 100 {
+			t.Errorf("expanded line %d is %d columns: %q", n, got, line)
+		}
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	collapsed = model.View()
+	if strings.Contains(collapsed, "Description:") {
+		t.Errorf("detail labels still shown after collapse:\n%s", collapsed)
+	}
+}
+
+func TestToolExplorerExpandedRowScrollsAndKeepsChrome(t *testing.T) {
+	var entries []ToolEntry
+	for i := 0; i < 25; i++ {
+		entries = append(entries, ToolEntry{
+			Name:        fmt.Sprintf("tool%02d", i),
+			Description: "short description",
+			Category:    "forensics",
+			Source:      SourceAvailable,
+			Status:      tools.StatusNotBuilt,
+		})
+	}
+	// Give the first row a detail block taller than the remaining viewport.
+	entries[0].Description = strings.Repeat("alpha bravo charlie delta echo foxtrot ", 12)
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	view := model.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) > 20 {
+		t.Fatalf("view is %d lines for height 20:\n%s", len(lines), view)
+	}
+	if len(lines) < 2 || !strings.Contains(lines[1], "Tools") {
+		t.Fatalf("header was pushed off the top:\n%s", view)
+	}
+	if !strings.Contains(view, "Description:") {
+		t.Errorf("expanded row detail not visible:\n%s", view)
+	}
+	for n, line := range lines {
+		if got := displayWidth(line); got > 80 {
+			t.Errorf("expanded line %d is %d columns: %q", n, got, line)
+		}
+	}
+
+	// Moving the cursor scrolls the list without losing the expanded row's
+	// identity or breaking the frame height.
+	for i := 0; i < 24; i++ {
+		model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	view = model.View()
+	lines = strings.Split(view, "\n")
+	if len(lines) > 20 {
+		t.Fatalf("view is %d lines after scrolling for height 20:\n%s", len(lines), view)
+	}
+	if !strings.Contains(lines[1], "Tools") {
+		t.Fatalf("header disappeared while scrolling:\n%s", view)
+	}
+}
+
+func TestToolExplorerViewportFitsAtVariousSizes(t *testing.T) {
+	var entries []ToolEntry
+	for i := 0; i < 60; i++ {
+		entries = append(entries, ToolEntry{
+			Name:        fmt.Sprintf("tool%02d", i),
+			Description: "short description",
+			Category:    "forensics",
+			Source:      SourceAvailable,
+			Status:      tools.StatusReady,
+		})
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+
+	sizes := []struct {
+		width, height int
+	}{
+		{80, 24},
+		{100, 30},
+		{120, 40},
+	}
+	for _, size := range sizes {
+		for _, cursor := range []int{0, 30, 59} {
+			model.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			model.cursor = cursor
+			view := model.View()
+			lines := strings.Split(view, "\n")
+			if len(lines) > size.height {
+				t.Errorf("%dx%d cursor %d: view is %d lines:\n%s",
+					size.width, size.height, cursor, len(lines), view)
+			}
+			if len(lines) < 2 || strings.TrimSpace(lines[0]) != "" || !strings.Contains(lines[1], "Tools") {
+				t.Errorf("%dx%d cursor %d: header not at the top:\n%s",
+					size.width, size.height, cursor, view)
+			}
+			// Every content row ends with its complete status suffix, so no
+			// row was cut off at the bottom edge.
+			lastRow := ""
+			for _, line := range lines[2:] {
+				if strings.Contains(line, " — ") {
+					lastRow = line
+				}
+			}
+			if !strings.Contains(lastRow, "ready") {
+				t.Errorf("%dx%d cursor %d: last visible row is incomplete: %q\n%s",
+					size.width, size.height, cursor, lastRow, view)
+			}
+			for n, line := range lines {
+				if got := displayWidth(line); got > size.width {
+					t.Errorf("%dx%d cursor %d: line %d is %d columns: %q",
+						size.width, size.height, cursor, n, got, line)
+				}
+			}
+		}
+	}
+}
+
+func TestToolExplorerRefreshShowsInFlightState(t *testing.T) {
+	model, _, statuses, _ := explorerFixture()
+	model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	model.SetResolver(func() (map[string]tools.Status, bool) {
+		return statuses, true
+	})
+
+	cmd := model.Init()
+	if !model.refreshing {
+		t.Fatal("Init must set the in-flight flag synchronously")
+	}
+	if cmd == nil {
+		t.Fatal("Init should return a refresh command")
+	}
+	view := model.View()
+	if !strings.Contains(view, "refreshing…") {
+		t.Errorf("footer should read refreshing…, got:\n%s", view)
+	}
+	if !strings.Contains(view, "⟳") {
+		t.Errorf("rows should show a refresh glyph, got:\n%s", view)
+	}
+	if strings.Contains(view, "✓") || strings.Contains(view, "○") {
+		t.Errorf("stale status glyphs should be replaced during refresh:\n%s", view)
+	}
+
+	model.Update(cmd())
+	view = model.View()
+	if model.refreshing {
+		t.Error("refreshing flag should clear when statuses arrive")
+	}
+	if strings.Contains(view, "refreshing…") {
+		t.Errorf("footer still says refreshing after completion:\n%s", view)
+	}
+	if !strings.Contains(view, "✓") {
+		t.Errorf("fresh status glyph should be shown after refresh:\n%s", view)
+	}
+
+	// A failed refresh also leaves the in-flight state.
+	model.Update(statusesRefreshFailed{err: fmt.Errorf("boom")})
+	if model.refreshing {
+		t.Error("refreshing flag should clear on failure")
+	}
+	if view := model.View(); !strings.Contains(view, "Refresh failed: boom") {
+		t.Errorf("failure should be surfaced in the footer:\n%s", view)
+	}
+}
+
+func TestToolExplorerRefreshKeySetsInFlight(t *testing.T) {
+	model, _, statuses, _ := explorerFixture()
+	model.SetResolver(func() (map[string]tools.Status, bool) {
+		return statuses, true
+	})
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd == nil {
+		t.Fatal("r should return a refresh command")
+	}
+	if !model.refreshing {
+		t.Error("r should set the in-flight flag before the command runs")
+	}
+	if view := model.View(); !strings.Contains(view, "refreshing…") {
+		t.Errorf("footer should read refreshing… after r, got:\n%s", view)
+	}
+}
+
+func TestToolExplorerDetailLongWordStaysComplete(t *testing.T) {
+	word := strings.Repeat("abcdefghij", 20)
+	entries := []ToolEntry{
+		{Name: "long", Description: word, Source: SourceBuiltin, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.WindowSizeMsg{Width: 40, Height: 30})
+	model.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	view := model.View()
+	if !strings.Contains(view, word[len(word)-10:]) {
+		t.Errorf("expanded detail truncated a long word:\n%s", view)
+	}
+	for n, line := range strings.Split(view, "\n") {
+		if got := displayWidth(line); got > 40 {
+			t.Errorf("line %d is %d columns: %q", n, got, line)
 		}
 	}
 }

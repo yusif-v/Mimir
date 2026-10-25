@@ -104,6 +104,8 @@ type ToolExplorer struct {
 	resolver   func() (map[string]tools.Status, bool)
 	selected   string // tool chosen via Enter; consumed by the shell after quit
 	errMsg     string
+	expanded   string // name of the row expanded inline by tab; "" = none
+	refreshing bool   // a status refresh is in flight
 }
 
 // NewToolExplorer creates a new tool explorer from Mimir's installed tool
@@ -171,8 +173,20 @@ func (m *ToolExplorer) SelectedTool() string {
 	return m.selected
 }
 
-// Init starts the model.
+// Init starts the model. The in-flight flag is set synchronously so the first
+// frame can render the refresh state; setting it inside the returned command
+// would happen after that frame.
 func (m *ToolExplorer) Init() tea.Cmd {
+	return m.startRefresh()
+}
+
+// startRefresh marks a refresh in flight and returns the resolving command.
+// With no resolver configured it is a no-op so an inert model stays inert.
+func (m *ToolExplorer) startRefresh() tea.Cmd {
+	if m.resolver == nil {
+		return nil
+	}
+	m.refreshing = true
 	return refreshToolsCmd(m.resolver)
 }
 
@@ -195,6 +209,7 @@ func (m *ToolExplorer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case statusesRefreshed:
+		m.refreshing = false
 		m.errMsg = ""
 		for i := range m.tools {
 			if s, ok := msg.statuses[m.tools[i].Name]; ok {
@@ -203,6 +218,7 @@ func (m *ToolExplorer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case statusesRefreshFailed:
+		m.refreshing = false
 		m.errMsg = msg.err.Error()
 
 	case tea.KeyMsg:
@@ -224,6 +240,9 @@ func (m *ToolExplorer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			m.searching = true
 			m.cursor = 0
+
+		case "tab", "d":
+			m.toggleExpanded()
 
 		case "enter":
 			visible := m.filtered()
@@ -259,7 +278,7 @@ func (m *ToolExplorer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleCategory()
 
 		case "r":
-			return m, refreshToolsCmd(m.resolver)
+			return m, m.startRefresh()
 		}
 	}
 	return m, nil
@@ -334,6 +353,21 @@ func (m *ToolExplorer) cycleCategory() {
 	m.category = ""
 }
 
+// toggleExpanded expands the selected row inline, or collapses it when that
+// same row is already expanded. One row is expanded at a time.
+func (m *ToolExplorer) toggleExpanded() {
+	visible := m.filtered()
+	if m.cursor < 0 || m.cursor >= len(visible) {
+		return
+	}
+	name := visible[m.cursor].Name
+	if m.expanded == name {
+		m.expanded = ""
+		return
+	}
+	m.expanded = name
+}
+
 type rowColumns struct {
 	name     int
 	source   int
@@ -399,49 +433,73 @@ func (m *ToolExplorer) rowColumns(entries []ToolEntry, avail int) rowColumns {
 // View renders the tool explorer.
 func (m *ToolExplorer) View() string {
 	visible := m.filtered()
-
-	// Clip to the viewport: show a window around the cursor.
-	window := visible
-	winStart := 0
-	if m.height > 0 {
-		lines := m.height - 4 // header + 2 padding lines + scroll indicator
-		if lines < 1 {
-			lines = 1
-		}
-		if len(visible) > lines {
-			winStart = m.cursor - lines/2
-			if winStart < 0 {
-				winStart = 0
-			}
-			if winStart+lines > len(visible) {
-				winStart = len(visible) - lines
-			}
-			window = visible[winStart : winStart+lines]
-		}
-	}
-
 	avail := m.contentWidth()
 	cols := m.rowColumns(visible, avail)
 
-	var items []string
-	for i, tool := range window {
-		items = append(items, m.renderRow(tool, winStart+i == m.cursor, cols)...)
+	// Render every row first: rows wrap and an expanded row adds detail lines,
+	// so the viewport must be measured in rendered lines, not row count.
+	rendered := make([][]string, len(visible))
+	heights := make([]int, len(visible))
+	for i, tool := range visible {
+		rendered[i] = m.renderRow(tool, i == m.cursor, cols)
+		heights[i] = len(rendered[i])
+		if heights[i] < 1 {
+			heights[i] = 1
+		}
 	}
 
-	header := m.renderHeader(avail)
+	// The footer is one count/scroll line, plus optional refresh and error
+	// lines. Chrome is the leading blank line and the one-line header.
+	footerHeight := 1
+	if m.refreshing {
+		footerHeight++
+	}
+	if m.errMsg != "" {
+		footerHeight++
+	}
+
+	start, end := 0, len(visible)
+	if m.height > 0 {
+		availRows := m.height - 2 - footerHeight
+		if availRows < 1 {
+			availRows = 1
+		}
+		start, end = rowWindow(heights, m.cursor, availRows)
+	}
 
 	count := fmt.Sprintf("%d tools", len(visible))
 	if len(visible) == 1 {
 		count = "1 tool"
 	}
 	footerLines := []string{count}
-	if len(window) < len(visible) {
+	if start > 0 || end < len(visible) {
 		footerLines = []string{fmt.Sprintf("Showing %d of %d tools (scroll with j/k)",
-			len(window), len(visible))}
+			end-start, len(visible))}
+	}
+	if m.refreshing {
+		footerLines = append(footerLines, "refreshing…")
 	}
 	if m.errMsg != "" {
 		footerLines = append(footerLines, "Refresh failed: "+m.errMsg)
 	}
+
+	var items []string
+	for i := start; i < end; i++ {
+		items = append(items, rendered[i]...)
+	}
+	// A single row taller than the viewport (a very long expanded detail) must
+	// not push the header off the top.
+	if m.height > 0 {
+		availRows := m.height - 2 - len(footerLines)
+		if availRows < 1 {
+			availRows = 1
+		}
+		if len(items) > availRows {
+			items = items[:availRows]
+		}
+	}
+
+	header := m.renderHeader(avail)
 
 	var b strings.Builder
 	b.WriteString("\n")
@@ -457,6 +515,69 @@ func (m *ToolExplorer) View() string {
 		b.WriteString(m.fitLine(line, avail))
 	}
 	return b.String()
+}
+
+// rowWindow returns the half-open range of rows that fits in avail rendered
+// lines while keeping the cursor row visible. Rows are atomic: a wrapped row is
+// never split. If the cursor row alone is taller than avail it is returned on
+// its own and the caller clips its lines so the chrome stays in place.
+func rowWindow(heights []int, cursor, avail int) (int, int) {
+	n := len(heights)
+	if n == 0 {
+		return 0, 0
+	}
+	if avail < 1 {
+		avail = 1
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= n {
+		cursor = n - 1
+	}
+
+	prefix := make([]int, n+1)
+	for i, h := range heights {
+		prefix[i+1] = prefix[i] + h
+	}
+	if prefix[n] <= avail {
+		return 0, n
+	}
+
+	cursorH := heights[cursor]
+	if cursorH > avail {
+		return cursor, cursor + 1
+	}
+
+	// Aim to centre the cursor row, then fill downwards from there.
+	startLine := prefix[cursor] - (avail-cursorH)/2
+	if startLine < 0 {
+		startLine = 0
+	}
+	start := 0
+	for start < n && prefix[start+1] <= startLine {
+		start++
+	}
+	if start > cursor {
+		start = cursor
+	}
+
+	end := start
+	used := 0
+	for end < n && used+heights[end] <= avail {
+		used += heights[end]
+		end++
+	}
+	if end <= cursor {
+		start = cursor
+		end = start
+		used = 0
+		for end < n && used+heights[end] <= avail {
+			used += heights[end]
+			end++
+		}
+	}
+	return start, end
 }
 
 func (m *ToolExplorer) contentWidth() int {
@@ -495,9 +616,14 @@ func (m *ToolExplorer) renderRow(t ToolEntry, selected bool, cols rowColumns) []
 	source := fitText(sourceLabel(t), cols.source)
 	cat := fitText(t.Category, cols.category)
 
+	icon := statusIcon(t.Status)
+	if m.refreshing {
+		icon = "⟳"
+	}
+
 	var meta strings.Builder
 	meta.WriteString(strings.Repeat(" ", explorerIndent))
-	meta.WriteString(statusIcon(t.Status))
+	meta.WriteString(icon)
 	meta.WriteString(" ")
 	meta.WriteString(name)
 	meta.WriteString(" ")
@@ -530,6 +656,9 @@ func (m *ToolExplorer) renderRow(t ToolEntry, selected bool, cols rowColumns) []
 	}
 
 	suffix := t.Status.String()
+	if m.refreshing {
+		suffix = "refreshing…"
+	}
 	if t.Runs > 0 {
 		suffix += fmt.Sprintf(" (×%d)", t.Runs)
 	}
@@ -557,6 +686,7 @@ func (m *ToolExplorer) renderRow(t ToolEntry, selected bool, cols rowColumns) []
 	}
 
 	if selected {
+		lines = append(lines, m.renderDetailIfExpanded(t)...)
 		pal := m.palette()
 		code := theme.ResolveColor(pal.brand)
 		if code == "" {
@@ -569,7 +699,6 @@ func (m *ToolExplorer) renderRow(t ToolEntry, selected bool, cols rowColumns) []
 	}
 
 	color := m.statusColor(t.Status)
-	icon := statusIcon(t.Status)
 	first := lines[0]
 	if strings.HasPrefix(first[explorerIndent:], icon) {
 		first = first[:explorerIndent] + theme.Colorize(icon, color) + first[explorerIndent+len(icon):]
@@ -580,7 +709,77 @@ func (m *ToolExplorer) renderRow(t ToolEntry, selected bool, cols rowColumns) []
 	}
 	lines[0] = first
 	lines[len(lines)-1] = last
+	lines = append(lines, m.renderDetailIfExpanded(t)...)
 	return lines
+}
+
+// renderDetailIfExpanded returns the extra lines for the selected row when it
+// is expanded, and nothing otherwise.
+func (m *ToolExplorer) renderDetailIfExpanded(t ToolEntry) []string {
+	if m.expanded == "" || t.Name != m.expanded {
+		return nil
+	}
+	return m.renderDetail(t)
+}
+
+// renderDetail renders the full-height detail block for an expanded row. It
+// uses the whole content width rather than the description column, wrapping
+// only when the terminal cannot show the value on one line.
+func (m *ToolExplorer) renderDetail(t ToolEntry) []string {
+	indent := strings.Repeat(" ", explorerIndent+2)
+	avail := m.contentWidth()
+	fields := []struct{ label, value string }{
+		{"Description", strings.TrimSpace(t.Description)},
+		{"Tags", listValue(t.Tags)},
+		{"Source", sourceLabel(t)},
+		{"Status", m.statusText(t)},
+		{"Runs", fmt.Sprintf("%d", t.Runs)},
+		{"Category", valueOrNone(t.Category)},
+	}
+
+	var lines []string
+	for _, f := range fields {
+		prefix := indent + f.label + ": "
+		value := valueOrNone(f.value)
+		width := 0
+		if avail > 0 {
+			width = avail - displayWidth(prefix)
+			if width < 1 {
+				width = 1
+			}
+		}
+		wrapped := wrapFullText(value, width)
+		contIndent := indent + strings.Repeat(" ", displayWidth(f.label+": "))
+		for i, part := range wrapped {
+			if i == 0 {
+				lines = append(lines, prefix+part)
+				continue
+			}
+			lines = append(lines, contIndent+part)
+		}
+	}
+	return lines
+}
+
+func (m *ToolExplorer) statusText(t ToolEntry) string {
+	if m.refreshing {
+		return "refreshing…"
+	}
+	return t.Status.String()
+}
+
+func valueOrNone(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(none)"
+	}
+	return s
+}
+
+func listValue(values []string) string {
+	if len(values) == 0 {
+		return "(none)"
+	}
+	return strings.Join(values, ", ")
 }
 
 func (m *ToolExplorer) palette() explorerPalette {
@@ -589,6 +788,9 @@ func (m *ToolExplorer) palette() explorerPalette {
 
 func (m *ToolExplorer) statusColor(s tools.Status) theme.Color {
 	pal := m.palette()
+	if m.refreshing {
+		return pal.dim
+	}
 	switch s {
 	case tools.StatusReady:
 		return pal.statusOK
@@ -699,6 +901,72 @@ func truncateText(s string, width int) string {
 	}
 	b.WriteString("…")
 	return b.String()
+}
+
+// wrapFullText wraps like wrapText but splits words that are wider than the
+// line instead of truncating them, so an expanded description stays complete.
+func wrapFullText(s string, width int) []string {
+	s = strings.TrimSpace(s)
+	if width <= 0 || s == "" {
+		return []string{s}
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	cur := ""
+	for _, word := range words {
+		for displayWidth(word) > width {
+			if cur != "" {
+				lines = append(lines, cur)
+				cur = ""
+			}
+			head, rest := splitWidth(word, width)
+			lines = append(lines, head)
+			word = rest
+		}
+		if word == "" {
+			continue
+		}
+		if cur == "" {
+			cur = word
+			continue
+		}
+		if displayWidth(cur)+1+displayWidth(word) <= width {
+			cur += " " + word
+			continue
+		}
+		lines = append(lines, cur)
+		cur = word
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	return lines
+}
+
+// splitWidth splits s at the last rune boundary that fits in width.
+func splitWidth(s string, width int) (string, string) {
+	if width < 1 {
+		width = 1
+	}
+	runes := []rune(s)
+	used := 0
+	for i, r := range runes {
+		w := displayWidth(string(r))
+		if used+w > width {
+			if i == 0 {
+				return string(r), string(runes[1:])
+			}
+			return string(runes[:i]), string(runes[i:])
+		}
+		used += w
+	}
+	return s, ""
 }
 
 func wrapText(s string, width int) []string {
