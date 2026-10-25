@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yusif-v/mimir/internal/cases"
 	"github.com/yusif-v/mimir/internal/events"
@@ -89,5 +90,92 @@ func TestResolveRunArgKeepsMissingAbsolutePath(t *testing.T) {
 	}
 	if got != abs {
 		t.Errorf("got %q, want %q", got, abs)
+	}
+}
+
+func TestCmdIOCFromOutputAcceptsToolName(t *testing.T) {
+	app, c := newPathTestApp(t)
+	outputDir := filepath.Join(c.Path, "output")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldName := "hash_20250101_000000.txt"
+	newName := "hash_20250102_000000.txt"
+	oldPath := filepath.Join(outputDir, oldName)
+	newPath := filepath.Join(outputDir, newName)
+	if err := os.WriteFile(oldPath, []byte("old indicator 1.1.1.1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new indicator 9.9.9.9"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-2 * time.Hour)
+	newTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := app.cmdIOC([]string{"--from-output", "hash"}); err != nil {
+		t.Fatalf("ioc --from-output hash: %v", err)
+	}
+	iocs := c.IOCs()
+	if !hasIOC(iocs, "9.9.9.9") {
+		t.Fatalf("expected newest hash output to be used, got %+v", iocs)
+	}
+	if hasIOC(iocs, "1.1.1.1") {
+		t.Fatalf("unexpected indicator from older output: %+v", iocs)
+	}
+
+	// An exact timestamped filename still selects that specific output file.
+	if err := app.cmdIOC([]string{"--from-output", oldName}); err != nil {
+		t.Fatalf("ioc --from-output %s: %v", oldName, err)
+	}
+	if !hasIOC(c.IOCs(), "1.1.1.1") {
+		t.Fatalf("exact output filename was not used: %+v", c.IOCs())
+	}
+}
+
+func hasIOC(records []cases.IOC, value string) bool {
+	for _, r := range records {
+		if r.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCmdEvidenceAddExpandsTilde(t *testing.T) {
+	app, c := newPathTestApp(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	tildeFile := filepath.Join(home, "tilde.bin")
+	if err := os.WriteFile(tildeFile, []byte("tilde-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.cmdEvidence([]string{"add", "~/tilde.bin"}); err != nil {
+		t.Fatalf("evidence add ~/tilde.bin: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(c.Path, "evidence", "tilde.bin")); err != nil {
+		t.Fatalf("tilde evidence not copied: %v", err)
+	}
+
+	absFile := filepath.Join(t.TempDir(), "abs.bin")
+	if err := os.WriteFile(absFile, []byte("abs-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.cmdEvidence([]string{"add", absFile}); err != nil {
+		t.Fatalf("evidence add %s: %v", absFile, err)
+	}
+
+	names := map[string]bool{}
+	for _, rec := range c.Evidence() {
+		names[rec.Name] = true
+	}
+	if !names["tilde.bin"] || !names["abs.bin"] {
+		t.Fatalf("expected tilde and absolute evidence entries, got %+v", c.Evidence())
 	}
 }

@@ -1029,6 +1029,50 @@ func (a *App) timelineCorrelate(c *cases.Case) error {
 	itbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	return nil
 }
+
+// resolveCaseOutput resolves a name passed to `ioc --from-output` to a file in
+// the case's output/ directory. An exact filename wins; otherwise the name is
+// treated as a tool name and the most recent <tool>_<timestamp>.txt run is
+// selected. If nothing matches, the exact path is returned so the subsequent
+// read reports the missing filename.
+func resolveCaseOutput(c *cases.Case, name string) string {
+	outputDir := filepath.Join(c.Path, "output")
+	exact := filepath.Join(outputDir, name)
+	if info, err := os.Stat(exact); err == nil && info.Mode().IsRegular() {
+		return exact
+	}
+
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return exact
+	}
+	prefix := name + "_"
+	var best string
+	var bestTime time.Time
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		filename := entry.Name()
+		if !strings.HasPrefix(filename, prefix) || !strings.HasSuffix(filename, ".txt") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if best == "" || info.ModTime().After(bestTime) ||
+			(info.ModTime().Equal(bestTime) && filename > filepath.Base(best)) {
+			best = filepath.Join(outputDir, filename)
+			bestTime = info.ModTime()
+		}
+	}
+	if best != "" {
+		return best
+	}
+	return exact
+}
+
 func (a *App) cmdIOC(args []string) error {
 	if len(args) == 0 {
 		return a.iocList()
@@ -1047,7 +1091,7 @@ func (a *App) cmdIOC(args []string) error {
 			return fmt.Errorf("no case is open")
 		}
 		source = args[1]
-		b, err := os.ReadFile(filepath.Join(c.Path, "output", source))
+		b, err := os.ReadFile(resolveCaseOutput(c, source))
 		if err != nil {
 			return fmt.Errorf("read output %q: %w", source, err)
 		}
@@ -2016,6 +2060,22 @@ func (a *App) cmdEvidence(args []string) error {
 	}
 }
 
+// expandHome expands a leading "~" to the current user's home directory.
+// Other path forms are returned unchanged.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") && !strings.HasPrefix(path, `~\`) {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
+}
+
 func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	var src string
 	var tags []string
@@ -2030,6 +2090,7 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	if src == "" {
 		return fmt.Errorf("usage: evidence add <path> [--tag a,b]")
 	}
+	src = expandHome(src)
 	info, err := os.Stat(src)
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", src, err)
