@@ -118,8 +118,8 @@ func TestCmdIOCFromOutputAcceptsToolName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := app.cmdIOC([]string{"--from-output", "hash"}); err != nil {
-		t.Fatalf("ioc --from-output hash: %v", err)
+	if err := app.cmdIOC([]string{"from-output", "hash"}); err != nil {
+		t.Fatalf("ioc from-output hash: %v", err)
 	}
 	iocs := c.IOCs()
 	if !hasIOC(iocs, "9.9.9.9") {
@@ -130,8 +130,8 @@ func TestCmdIOCFromOutputAcceptsToolName(t *testing.T) {
 	}
 
 	// An exact timestamped filename still selects that specific output file.
-	if err := app.cmdIOC([]string{"--from-output", oldName}); err != nil {
-		t.Fatalf("ioc --from-output %s: %v", oldName, err)
+	if err := app.cmdIOC([]string{"from-output", oldName}); err != nil {
+		t.Fatalf("ioc from-output %s: %v", oldName, err)
 	}
 	if !hasIOC(c.IOCs(), "1.1.1.1") {
 		t.Fatalf("exact output filename was not used: %+v", c.IOCs())

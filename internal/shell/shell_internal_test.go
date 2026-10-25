@@ -426,8 +426,8 @@ func TestCmdIOCExtractAndTrack(t *testing.T) {
 	os.MkdirAll(filepath.Dir(f), 0755)
 	os.WriteFile(f, []byte("beacon to 9.9.9.9 and evil.example.com"), 0644)
 
-	if err := app.cmdIOC([]string{f}); err != nil {
-		t.Fatalf("ioc: %v", err)
+	if err := app.cmdIOC([]string{"extract", f}); err != nil {
+		t.Fatalf("ioc extract: %v", err)
 	}
 	iocs := c.IOCs()
 	if len(iocs) < 2 {

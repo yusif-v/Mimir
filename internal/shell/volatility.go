@@ -20,8 +20,7 @@ const volImage = "dfir-volatility:latest"
 // dump. It is the first-class memory-forensics command — no need to go through
 // the generic sandbox. Usage:
 //
-//	volatility <plugin> [-f <dump>] [plugin args...]
-//	mem       <plugin> [-f <dump>] [plugin args...]
+//	memory <plugin> [-f <dump>] [plugin args...]
 //
 // The dump is resolved from -f (relative to the case evidence dir or absolute),
 // or auto-selected from the most recent evidence tagged "memory-dump", else the
@@ -31,10 +30,10 @@ const volImage = "dfir-volatility:latest"
 func (a *App) cmdVolatility(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
-		return fmt.Errorf("no case open — run 'case -o <name>' first")
+		return fmt.Errorf("no case open — run 'case open <name>' first")
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: volatility <plugin> [-f <dump>] [--offline] [args...]")
+		return fmt.Errorf("usage: memory <plugin> [-f <dump>] [--offline] [args...]")
 	}
 
 	// Split out -f <dump> and --offline if present; the rest is the vol plugin + args.
@@ -57,7 +56,7 @@ func (a *App) cmdVolatility(args []string) error {
 		}
 	}
 	if len(pluginArgs) == 0 {
-		return fmt.Errorf("usage: volatility <plugin> [-f <dump>] [--offline] [args...]")
+		return fmt.Errorf("usage: memory <plugin> [-f <dump>] [--offline] [args...]")
 	}
 
 	dumpPath, err := resolveDump(c, dumpName)
@@ -70,7 +69,7 @@ func (a *App) cmdVolatility(args []string) error {
 
 	// Ensure the volatility image exists.
 	if !dockerImageExists(volImage) {
-		return fmt.Errorf("image %s not found — run 'build volatility' first (builds it from the catalog template)", volImage)
+		return fmt.Errorf("image %s not found — run 'tool build volatility' first (builds it from the catalog template)", volImage)
 	}
 
 	dockerArgs := []string{

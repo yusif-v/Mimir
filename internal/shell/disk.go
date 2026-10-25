@@ -31,10 +31,10 @@ var tskTools = map[string]bool{
 }
 
 // cmdDisk runs a SleuthKit tool against a disk image as a first-class
-// command — the disk-forensics counterpart of `volatility`. Usage:
+// command — the disk-forensics counterpart of `memory`. Usage:
 //
 //	disk <tool> [-i <image>] [tool args...]
-//	sleuthkit <tool> [-i <image>] [tool args...]   (alias)
+//	(the canonical command is disk; sleuthkit was the old name)
 //
 // The image is resolved from -i (relative to the case evidence dir or
 // absolute), or auto-selected from evidence tagged "disk-image", else the
@@ -45,7 +45,7 @@ var tskTools = map[string]bool{
 func (a *App) cmdDisk(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
-		return fmt.Errorf("no case open — run 'case -o <name>' first")
+		return fmt.Errorf("no case open — run 'case open <name>' first")
 	}
 	if len(args) == 0 {
 		return fmt.Errorf("usage: disk <tool> [-i <image>] [args...]\nTools: fls, fsstat, icat, mmls, blkcalc, istat, blkls, blkcat, dcat, dstat, ffind, hfind, ifind, ils, img_stat, jcat, jls, sigfind, sstat")
@@ -81,7 +81,7 @@ func (a *App) cmdDisk(args []string) error {
 	containerPath := "/evidence/" + base
 
 	if !dockerImageExists(tskImage) {
-		return fmt.Errorf("image %s not found — run 'build sleuthkit' first (builds it from the catalog template)", tskImage)
+		return fmt.Errorf("image %s not found — run 'tool build sleuthkit' first (builds it from the catalog template)", tskImage)
 	}
 
 	dockerArgs := []string{
@@ -174,7 +174,7 @@ func resolveEvidenceFile(c *cases.Case, name, tag, noHint string) (string, error
 // cmdRegHives runs RegRipper against a Windows registry hive as a first-class
 // command. Usage:
 //
-//	regripper [hive] [-p <plugin>] [--json]
+//	registry [hive] [-p <plugin>] [--json]
 //
 // The hive is resolved positionally or via auto-selection (prefer evidence
 // tagged "registry-hive"). Output is printed, captured to the timeline via
@@ -183,7 +183,7 @@ func resolveEvidenceFile(c *cases.Case, name, tag, noHint string) (string, error
 func (a *App) cmdRegHives(args []string) error {
 	c := a.Cases.Current()
 	if c == nil {
-		return fmt.Errorf("no case open — run 'case -o <name>' first")
+		return fmt.Errorf("no case open — run 'case open <name>' first")
 	}
 
 	hiveName := ""
@@ -209,7 +209,7 @@ func (a *App) cmdRegHives(args []string) error {
 	base := filepath.Base(hivePath)
 
 	if !dockerImageExists(rrImage) {
-		return fmt.Errorf("image %s not found — run 'build regripper' first (builds it from the catalog template)", rrImage)
+		return fmt.Errorf("image %s not found — run 'tool build regripper' first (builds it from the catalog template)", rrImage)
 	}
 
 	ripArgs := []string{"-r", "/evidence/" + base}

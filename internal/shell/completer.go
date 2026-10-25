@@ -24,10 +24,12 @@ func (c *Completer) Do(line []rune, pos int) ([][]rune, int) {
 
 	s := sources{
 		commands:     commandNames,
+		subcommands:  subcommands,
 		toolNames:    toolNames(installed, builtins.List()),
 		installNames: installNames(installed, catEntries),
 		buildNames:   buildNames(installed),
 		caseNames:    names,
+		diskTools:    diskToolNames(),
 		filePath: func(word string) ([][]rune, int) {
 			return filePathComplete(cwd, word, os.ReadDir)
 		},
@@ -35,11 +37,35 @@ func (c *Completer) Do(line []rune, pos int) ([][]rune, int) {
 	return complete(string(line[:pos]), s)
 }
 
-// commandNames are the REPL's built-in command verbs, completed at word 0.
+// commandNames are the REPL's canonical command domains, completed at word 0.
 var commandNames = []string{
-	"help", "exit", "quit", "status", "case", "cases", "tools",
-	"run", "install", "build", "use", "note", "evidence", "ev", "clear", "timeline", "ioc", "correlate", "search", "disk",
-	"export", "import", "analyze",
+	"help", "exit", "case", "evidence", "ioc", "timeline", "tool",
+	"memory", "disk", "registry", "report", "export", "import", "note",
+	"correlate", "search", "grep", "plugin", "theme", "sandbox", "ai", "clear",
+}
+
+// subcommands maps each domain to the actions it accepts at word 1. Domains
+// without a fixed action list (memory, disk, registry, report, ...) are absent.
+var subcommands = map[string][]string{
+	"case":     {"create", "open", "close", "list", "status", "templates"},
+	"evidence": {"list", "add", "tag", "verify", "classify"},
+	"ioc":      {"list", "extract", "from-output", "diff"},
+	"timeline": {"list", "export", "build", "correlate"},
+	"tool":     {"list", "run", "install", "build", "info", "analyze", "dashboard"},
+	"plugin":   {"list", "run", "info"},
+	"theme":    {"list", "set", "save"},
+	"sandbox":  {"create", "run", "shell", "logs", "report", "cp", "destroy", "list"},
+	"ai":       {"ask", "analyze", "suggest", "explain", "summarize", "config", "models", "use"},
+}
+
+// diskToolNames returns the SleuthKit binaries the disk command accepts.
+func diskToolNames() []string {
+	out := make([]string, 0, len(tskTools))
+	for name := range tskTools {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // matchSuffixes implements the readline AutoCompleter.Do contract: for each
@@ -139,15 +165,17 @@ func buildNames(installed []*tools.Definition) []string {
 // file-path closure (injected so the pure logic needs no real filesystem/TTY).
 type sources struct {
 	commands     []string
+	subcommands  map[string][]string
 	toolNames    []string
 	installNames []string
 	buildNames   []string
 	caseNames    []string
+	diskTools    []string
 	filePath     func(word string) ([][]rune, int)
 }
 
 // complete parses the line and returns completions for the word at the cursor,
-// per the context rules in the v0.3 spec.
+// completing domain actions first and then action-specific arguments.
 func complete(line string, s sources) ([][]rune, int) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
@@ -172,35 +200,64 @@ func complete(line string, s sources) ([][]rune, int) {
 		return matchSuffixes(word, s.commands)
 	}
 
+	if actions, ok := s.subcommands[completed[0]]; ok && pos == 1 {
+		return matchSuffixes(word, actions)
+	}
+
 	switch completed[0] {
-	case "run", "use":
-		if pos == 1 {
-			return matchSuffixes(word, s.toolNames)
-		}
-		return s.filePath(word)
-	case "install":
-		if pos == 1 {
-			return matchSuffixes(word, s.installNames)
-		}
-		return nil, len([]rune(word))
-	case "build":
-		if pos == 1 {
-			return matchSuffixes(word, s.buildNames)
-		}
-		return nil, len([]rune(word))
 	case "case":
-		if pos == 1 {
-			return matchSuffixes(word, []string{"-n", "-o", "-c", "list", "templates"})
-		}
-		if pos == 2 && (completed[1] == "-o" || completed[1] == "-c") {
+		if pos == 2 && (completed[1] == "open" || completed[1] == "create") {
 			return matchSuffixes(word, s.caseNames)
+		}
+		if pos == 2 && completed[1] == "list" {
+			return matchSuffixes(word, []string{"--status"})
+		}
+		return nil, len([]rune(word))
+	case "tool":
+		if pos == 2 {
+			switch completed[1] {
+			case "run", "info":
+				return matchSuffixes(word, s.toolNames)
+			case "install":
+				return matchSuffixes(word, s.installNames)
+			case "build":
+				return matchSuffixes(word, s.buildNames)
+			case "analyze":
+				return s.filePath(word)
+			}
+			return nil, len([]rune(word))
+		}
+		if pos == 3 && completed[1] == "run" {
+			return s.filePath(word)
+		}
+		return nil, len([]rune(word))
+	case "ioc":
+		if pos == 2 {
+			switch completed[1] {
+			case "extract", "diff":
+				return s.filePath(word)
+			case "from-output":
+				return matchSuffixes(word, s.toolNames)
+			}
+		}
+		return nil, len([]rune(word))
+	case "evidence":
+		if pos == 2 && completed[1] == "add" {
+			return s.filePath(word)
 		}
 		return nil, len([]rune(word))
 	case "timeline":
-		if pos == 1 {
-			return matchSuffixes(word, []string{"-n"})
+		if pos == 2 && completed[1] == "list" {
+			return matchSuffixes(word, []string{"-n", "--type", "--grep"})
 		}
 		return nil, len([]rune(word))
+	case "disk":
+		if pos == 1 {
+			return matchSuffixes(word, s.diskTools)
+		}
+		return s.filePath(word)
+	case "memory", "registry":
+		return s.filePath(word)
 	default:
 		return s.filePath(word)
 	}
