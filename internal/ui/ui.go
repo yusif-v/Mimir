@@ -81,8 +81,19 @@ func displayWidth(s string) int {
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		i += size
-		// ANSI escape sequences: ESC + [ + ... + m — zero width.
+		// ANSI CSI escape sequences (ESC [ ... final byte) are zero width.
+		// Consume the whole sequence, not just the ESC byte.
 		if r == 0x1b {
+			if i < len(s) && s[i] == '[' {
+				i++
+				for i < len(s) {
+					b := s[i]
+					i++
+					if b >= 0x40 && b <= 0x7e {
+						break
+					}
+				}
+			}
 			continue
 		}
 		// Zero-width combinators and similar.
