@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -180,6 +181,37 @@ func colorize(s, color string) string {
 		return s
 	}
 	return color + s + "\033[0m"
+}
+
+// splitJSONFlag removes --json from args and reports whether it was present.
+// Commands call it before writing any output so a progress line or table header
+// can never precede (and corrupt) the JSON document.
+func splitJSONFlag(args []string) ([]string, bool) {
+	out := make([]string, 0, len(args))
+	jsonMode := false
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonMode = true
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out, jsonMode
+}
+
+// jsonFlagEnabled reads the optional compatibility bool used by internal
+// command helpers.
+func jsonFlagEnabled(flags []bool) bool {
+	return len(flags) > 0 && flags[0]
+}
+
+// writeJSON emits one indented JSON document to stdout. It never mixes with
+// human-readable output: callers branch before rendering tables.
+func writeJSON(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }
 
 // user_Current returns the current OS username.
@@ -432,8 +464,29 @@ func (a *App) cmdHelp(args []string) error {
 	return nil
 }
 
-func (a *App) cmdStatus(args []string) error {
+type caseStatusJSON struct {
+	Open      bool     `json:"open"`
+	Name      string   `json:"name,omitempty"`
+	Path      string   `json:"path,omitempty"`
+	Status    string   `json:"status,omitempty"`
+	ToolsUsed []string `json:"tools_used,omitempty"`
+	Notes     int      `json:"notes"`
+}
+
+func (a *App) cmdStatus(args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	c := a.Cases.Current()
+	if jsonMode {
+		out := caseStatusJSON{Open: c != nil}
+		if c != nil {
+			out.Name = c.Name
+			out.Path = c.Path
+			out.Status = c.Status
+			out.ToolsUsed = c.ToolsUsed
+			out.Notes = len(c.Notes)
+		}
+		return writeJSON(out)
+	}
 	if c == nil {
 		fmt.Println("No case is open.")
 		return nil
@@ -446,6 +499,7 @@ func (a *App) cmdStatus(args []string) error {
 }
 
 func (a *App) cmdCase(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) < 1 {
 		return fmt.Errorf("usage: case <create|open|close|list|status|templates> [args...]")
 	}
@@ -454,6 +508,9 @@ func (a *App) cmdCase(args []string) error {
 
 	switch action {
 	case "create":
+		if jsonMode {
+			return fmt.Errorf("--json is not supported for case create (it produces no data)")
+		}
 		if len(args) < 2 {
 			return fmt.Errorf("usage: case create <name> [-t <template>]")
 		}
@@ -471,6 +528,9 @@ func (a *App) cmdCase(args []string) error {
 		}
 		fmt.Printf("Case created: %s\n", c.Path)
 	case "open":
+		if jsonMode {
+			return fmt.Errorf("--json is not supported for case open (it produces no data)")
+		}
 		if len(args) < 2 {
 			return fmt.Errorf("usage: case open <name>")
 		}
@@ -480,33 +540,19 @@ func (a *App) cmdCase(args []string) error {
 		}
 		fmt.Printf("Case opened: %s\n", c.Path)
 	case "close":
+		if jsonMode {
+			return fmt.Errorf("--json is not supported for case close (it produces no data)")
+		}
 		if err := a.Cases.Close(); err != nil {
 			return err
 		}
 		fmt.Println("Case closed.")
 	case "list":
-		return a.cmdCases(args[1:])
+		return a.cmdCases(args[1:], jsonMode)
 	case "status":
-		return a.cmdStatus(args[1:])
+		return a.cmdStatus(args[1:], jsonMode)
 	case "templates":
-		names, err := cases.ListTemplates()
-		if err != nil {
-			return fmt.Errorf("list templates: %w", err)
-		}
-		if len(names) == 0 {
-			fmt.Println("No templates available.")
-			return nil
-		}
-		fmt.Println("Available case templates:")
-		for i := range names {
-			name := names[i]
-			tmpl, err := cases.LoadTemplate(name[:len(name)-5]) // strip .yaml
-			if err != nil {
-				fmt.Printf("  %s (error loading: %v)\n", name, err)
-				continue
-			}
-			fmt.Printf("  %-25s %s\n", tmpl.Name, tmpl.Description)
-		}
+		return a.cmdTemplates(jsonMode)
 	case "-n":
 		return fmt.Errorf("unknown command: case -n — use %q", "case create <name>")
 	case "-o":
@@ -515,6 +561,49 @@ func (a *App) cmdCase(args []string) error {
 		return fmt.Errorf("unknown command: case -c — use %q", "case close")
 	default:
 		return fmt.Errorf("unknown command: case %s — use \"case list\" to list cases", action)
+	}
+	return nil
+}
+
+type caseTemplateJSON struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+func (a *App) cmdTemplates(jsonMode bool) error {
+	names, err := cases.ListTemplates()
+	if err != nil {
+		return fmt.Errorf("list templates: %w", err)
+	}
+	if jsonMode {
+		out := make([]caseTemplateJSON, 0, len(names))
+		for _, name := range names {
+			item := caseTemplateJSON{Name: strings.TrimSuffix(name, ".yaml")}
+			tmpl, loadErr := cases.LoadTemplate(item.Name)
+			if loadErr != nil {
+				item.Error = loadErr.Error()
+			} else {
+				item.Name = tmpl.Name
+				item.Description = tmpl.Description
+			}
+			out = append(out, item)
+		}
+		return writeJSON(out)
+	}
+	if len(names) == 0 {
+		fmt.Println("No templates available.")
+		return nil
+	}
+	fmt.Println("Available case templates:")
+	for i := range names {
+		name := names[i]
+		tmpl, err := cases.LoadTemplate(name[:len(name)-5]) // strip .yaml
+		if err != nil {
+			fmt.Printf("  %s (error loading: %v)\n", name, err)
+			continue
+		}
+		fmt.Printf("  %-25s %s\n", tmpl.Name, tmpl.Description)
 	}
 	return nil
 }
@@ -545,7 +634,19 @@ func (a *App) cmdTool(args []string) error {
 	}
 }
 
-func (a *App) cmdCases(args []string) error {
+type caseSummaryJSON struct {
+	Name      string   `json:"name"`
+	Path      string   `json:"path"`
+	Status    string   `json:"status"`
+	CreatedAt string   `json:"created_at"`
+	OpenedAt  string   `json:"opened_at,omitempty"`
+	ClosedAt  string   `json:"closed_at,omitempty"`
+	ToolsUsed []string `json:"tools_used"`
+	Notes     int      `json:"notes"`
+}
+
+func (a *App) cmdCases(args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	allCases, err := a.Cases.List()
 	if err != nil {
 		return err
@@ -557,6 +658,30 @@ func (a *App) cmdCases(args []string) error {
 			statusFilter = args[i+1]
 			i++
 		}
+	}
+
+	if jsonMode {
+		out := make([]caseSummaryJSON, 0, len(allCases))
+		for _, c := range allCases {
+			if statusFilter != "" && c.Status != statusFilter {
+				continue
+			}
+			toolsUsed := c.ToolsUsed
+			if toolsUsed == nil {
+				toolsUsed = []string{}
+			}
+			out = append(out, caseSummaryJSON{
+				Name:      c.Name,
+				Path:      c.Path,
+				Status:    c.Status,
+				CreatedAt: c.CreatedAt,
+				OpenedAt:  c.OpenedAt,
+				ClosedAt:  c.ClosedAt,
+				ToolsUsed: toolsUsed,
+				Notes:     len(c.Notes),
+			})
+		}
+		return writeJSON(out)
 	}
 
 	if len(allCases) == 0 {
@@ -610,9 +735,107 @@ func statusBadge(s tools.Status) (string, string) {
 	}
 }
 
+type toolInstalledJSON struct {
+	Name        string   `json:"name"`
+	Mode        string   `json:"mode"`
+	Status      string   `json:"status"`
+	Description string   `json:"description"`
+	Category    string   `json:"category,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Source      string   `json:"source"`
+}
+
+type toolAvailableJSON struct {
+	Name        string   `json:"name"`
+	Category    string   `json:"category"`
+	Description string   `json:"description"`
+	Mode        string   `json:"mode"`
+	Status      string   `json:"status"`
+	Tags        []string `json:"tags,omitempty"`
+	Source      string   `json:"source"`
+}
+
+type toolBuiltinJSON struct {
+	Name        string `json:"name"`
+	Mode        string `json:"mode"`
+	Status      string `json:"status"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+}
+
+type toolListJSON struct {
+	Installed []toolInstalledJSON `json:"installed"`
+	Available []toolAvailableJSON `json:"available"`
+	Builtin   []toolBuiltinJSON   `json:"builtin"`
+	DockerUp  bool                `json:"docker_up"`
+}
+
 func (a *App) cmdTools(args []string) error {
+	_, jsonMode := splitJSONFlag(args)
 	installed := a.Tools.List("")
 	statuses, dockerUp := a.Runner.ResolveStatuses(installed)
+
+	// AVAILABLE section = catalog minus already-installed
+	installedNames := map[string]bool{}
+	for _, t := range installed {
+		installedNames[t.Name] = true
+	}
+	entries, err := catalog.List()
+	if err != nil {
+		return fmt.Errorf("read catalog: %w", err)
+	}
+	var available []catalog.Entry
+	for _, e := range entries {
+		if !installedNames[e.Name] {
+			available = append(available, e)
+		}
+	}
+	bi := builtins.List()
+
+	if jsonMode {
+		out := toolListJSON{
+			Installed: make([]toolInstalledJSON, 0, len(installed)),
+			Available: make([]toolAvailableJSON, 0, len(available)),
+			Builtin:   make([]toolBuiltinJSON, 0, len(bi)),
+			DockerUp:  dockerUp,
+		}
+		for _, t := range installed {
+			mode := "local"
+			if t.RunsInDocker() {
+				mode = "docker"
+			}
+			out.Installed = append(out.Installed, toolInstalledJSON{
+				Name:        t.Name,
+				Mode:        mode,
+				Status:      statuses[t.Name].String(),
+				Description: t.Description,
+				Category:    t.Category,
+				Tags:        t.Tags,
+				Source:      "installed",
+			})
+		}
+		for _, e := range available {
+			out.Available = append(out.Available, toolAvailableJSON{
+				Name:        e.Name,
+				Category:    e.Category,
+				Description: e.Description,
+				Mode:        "docker",
+				Status:      "not installed",
+				Tags:        e.Tags,
+				Source:      "available",
+			})
+		}
+		for _, m := range bi {
+			out.Builtin = append(out.Builtin, toolBuiltinJSON{
+				Name:        m.Name,
+				Mode:        "builtin",
+				Status:      tools.StatusReady.String(),
+				Description: m.Description,
+				Source:      "builtin",
+			})
+		}
+		return writeJSON(out)
+	}
 
 	// INSTALLED section
 	if len(installed) == 0 {
@@ -639,21 +862,6 @@ func (a *App) cmdTools(args []string) error {
 		tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	}
 
-	// AVAILABLE section = catalog minus already-installed
-	installedNames := map[string]bool{}
-	for _, t := range installed {
-		installedNames[t.Name] = true
-	}
-	entries, err := catalog.List()
-	if err != nil {
-		return fmt.Errorf("read catalog: %w", err)
-	}
-	var available []catalog.Entry
-	for _, e := range entries {
-		if !installedNames[e.Name] {
-			available = append(available, e)
-		}
-	}
 	if len(available) > 0 {
 		fmt.Printf("\n%sAVAILABLE%s (tool install <name>)\n", colorCyan, colorReset)
 		tbl := ui.Table{
@@ -671,7 +879,6 @@ func (a *App) cmdTools(args []string) error {
 	}
 
 	// BUILT-IN section: native-Go tools, always ready.
-	bi := builtins.List()
 	if len(bi) > 0 {
 		fmt.Printf("\n%sBUILT-IN%s\n", colorCyan, colorReset)
 		tbl := ui.Table{
@@ -941,13 +1148,70 @@ func (a *App) recordRun(c *cases.Case, result *tools.Result) {
 	}
 }
 
+type toolInfoJSON struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category,omitempty"`
+	Source      string `json:"source"`
+	Status      string `json:"status"`
+	Mode        string `json:"mode"`
+	Command     string `json:"command,omitempty"`
+	Image       string `json:"image,omitempty"`
+	RunCount    int    `json:"run_count"`
+}
+
 func (a *App) cmdUse(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) == 0 {
 		return fmt.Errorf("usage: tool info <tool_name>")
 	}
 	tool, ok := a.Tools.Get(args[0])
 	if !ok {
+		if jsonMode {
+			for _, m := range builtins.List() {
+				if m.Name == args[0] {
+					return writeJSON(toolInfoJSON{
+						Name:        m.Name,
+						Description: m.Description,
+						Category:    "built-in",
+						Source:      "builtin",
+						Status:      tools.StatusReady.String(),
+						Mode:        "builtin",
+						RunCount:    a.toolRunCounts()[m.Name],
+					})
+				}
+			}
+			if entry, found := catalog.Get(args[0]); found {
+				return writeJSON(toolInfoJSON{
+					Name:        entry.Name,
+					Description: entry.Description,
+					Category:    entry.Category,
+					Source:      "available",
+					Status:      "not installed",
+					Mode:        "docker",
+				})
+			}
+		}
 		return fmt.Errorf("tool not found: %s", args[0])
+	}
+	if jsonMode {
+		mode := "local"
+		if tool.RunsInDocker() {
+			mode = "docker"
+		}
+		statuses, _ := a.Runner.ResolveStatuses([]*tools.Definition{tool})
+		out := toolInfoJSON{
+			Name:        tool.Name,
+			Description: tool.Description,
+			Category:    tool.Category,
+			Source:      "installed",
+			Status:      statuses[tool.Name].String(),
+			Mode:        mode,
+			Command:     tool.LocalCmd,
+			Image:       tool.DockerImage,
+			RunCount:    a.toolRunCounts()[tool.Name],
+		}
+		return writeJSON(out)
 	}
 	fmt.Printf("Selected tool: %s%s%s — %s\n", colorCyan, tool.Name, colorReset, tool.Description)
 	return nil
@@ -1003,6 +1267,7 @@ func eventMatches(ev cases.TimelineEvent, lowerSub string) bool {
 }
 
 func (a *App) cmdTimeline(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) == 0 {
 		return fmt.Errorf("unknown command: timeline — use %q", "timeline list")
 	}
@@ -1013,7 +1278,7 @@ func (a *App) cmdTimeline(args []string) error {
 
 	switch args[0] {
 	case "list":
-		return a.timelineList(c, args[1:])
+		return a.timelineList(c, args[1:], jsonMode)
 	case "build":
 		narr, err := c.Narrative()
 		if err != nil {
@@ -1026,10 +1291,13 @@ func (a *App) cmdTimeline(args []string) error {
 		if err := os.WriteFile(outPath, []byte(narr), 0644); err != nil {
 			return fmt.Errorf("narrative: write: %w", err)
 		}
+		if jsonMode {
+			return writeJSON(map[string]string{"path": outPath})
+		}
 		fmt.Printf("%sNarrative written:%s %s\n", colorGreen, colorReset, outPath)
 		return nil
 	case "correlate":
-		return a.timelineCorrelate(c)
+		return a.timelineCorrelate(c, jsonMode)
 	case "export":
 		format := "csv"
 		path := ""
@@ -1044,6 +1312,9 @@ func (a *App) cmdTimeline(args []string) error {
 		if err := c.ExportTimeline(format, path); err != nil {
 			return err
 		}
+		if jsonMode {
+			return writeJSON(map[string]string{"path": path, "format": format})
+		}
 		fmt.Printf("Timeline exported to %s\n", path)
 		return nil
 	default:
@@ -1051,7 +1322,8 @@ func (a *App) cmdTimeline(args []string) error {
 	}
 }
 
-func (a *App) timelineList(c *cases.Case, args []string) error {
+func (a *App) timelineList(c *cases.Case, args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	evs := c.Timeline()
 
 	var types []string
@@ -1080,6 +1352,13 @@ func (a *App) timelineList(c *cases.Case, args []string) error {
 	evs = filterTimeline(evs, types, grep)
 	if tail > 0 && tail < len(evs) {
 		evs = evs[len(evs)-tail:]
+	}
+
+	if jsonMode {
+		if evs == nil {
+			evs = []cases.TimelineEvent{}
+		}
+		return writeJSON(evs)
 	}
 
 	if len(evs) == 0 {
@@ -1119,7 +1398,8 @@ func (a *App) timelineList(c *cases.Case, args []string) error {
 // timelineCorrelate (G5) groups tool runs by tool and reports which tools
 // contributed findings, plus a per-tool indicator count. It gives a
 // cross-tool overview of how the case was built.
-func (a *App) timelineCorrelate(c *cases.Case) error {
+func (a *App) timelineCorrelate(c *cases.Case, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	runs := 0
 	byTool := map[string]int{}
 	var toolRuns []string
@@ -1138,6 +1418,18 @@ func (a *App) timelineCorrelate(c *cases.Case) error {
 			toolRuns = append(toolRuns, cmd)
 		}
 	}
+	byType := map[string]int{}
+	for _, ic := range c.IOCs() {
+		byType[ic.Type]++
+	}
+	if jsonMode {
+		return writeJSON(map[string]any{
+			"runs":               runs,
+			"tools":              byTool,
+			"tool_runs":          toolRuns,
+			"indicators_by_type": byType,
+		})
+	}
 	if runs == 0 {
 		fmt.Println("No tool runs in timeline yet — run a tool first (volatility, sandbox run -- <tool>, ...).")
 		return nil
@@ -1154,10 +1446,6 @@ func (a *App) timelineCorrelate(c *cases.Case) error {
 	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 
 	// Per-type indicator tally (cross-domain summary).
-	byType := map[string]int{}
-	for _, ic := range c.IOCs() {
-		byType[ic.Type]++
-	}
 	fmt.Printf("\n%sIndicators by type%s\n", colorCyan, colorReset)
 	itbl := ui.Table{
 		Headers: []string{"TYPE", "COUNT"},
@@ -1213,13 +1501,28 @@ func resolveCaseOutput(c *cases.Case, name string) string {
 	return exact
 }
 
+type iocJSON struct {
+	Type   string `json:"type"`
+	Value  string `json:"value"`
+	Source string `json:"source,omitempty"`
+	Time   string `json:"time,omitempty"`
+}
+
+type iocExtractJSON struct {
+	Source     string         `json:"source"`
+	Indicators []iocJSON      `json:"indicators"`
+	Counts     map[string]int `json:"counts"`
+	Total      int            `json:"total"`
+}
+
 func (a *App) cmdIOC(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) == 0 {
 		return fmt.Errorf("unknown command: ioc — use %q", "ioc list")
 	}
 	switch args[0] {
 	case "list":
-		return a.iocList()
+		return a.iocList(jsonMode)
 	case "extract":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: ioc extract <file>")
@@ -1228,7 +1531,7 @@ func (a *App) cmdIOC(args []string) error {
 		if err != nil {
 			return fmt.Errorf("read %q: %w", args[1], err)
 		}
-		return a.recordExtractedIOCs(args[1], b)
+		return a.recordExtractedIOCs(args[1], b, jsonMode)
 	case "from-output":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: ioc from-output <tool>")
@@ -1241,9 +1544,9 @@ func (a *App) cmdIOC(args []string) error {
 		if err != nil {
 			return fmt.Errorf("read output %q: %w", args[1], err)
 		}
-		return a.recordExtractedIOCs(args[1], b)
+		return a.recordExtractedIOCs(args[1], b, jsonMode)
 	case "diff":
-		return a.cmdIOCDiff(args[1:])
+		return a.cmdIOCDiff(args[1:], jsonMode)
 	default:
 		if args[0] == "--from-output" {
 			return fmt.Errorf("unknown command: ioc --from-output — use %q", "ioc from-output <tool>")
@@ -1254,27 +1557,40 @@ func (a *App) cmdIOC(args []string) error {
 
 // recordExtractedIOCs extracts indicators from data, prints them, and records
 // them against the open case (if any). source labels where the data came from.
-func (a *App) recordExtractedIOCs(source string, data []byte) error {
+func (a *App) recordExtractedIOCs(source string, data []byte, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	c := a.Cases.Current()
 	inds := ioc.Extract(data)
+	counts := map[string]int{}
+	out := iocExtractJSON{
+		Source:     source,
+		Indicators: make([]iocJSON, 0, len(inds)),
+		Counts:     counts,
+		Total:      len(inds),
+	}
 	if len(inds) == 0 {
+		if jsonMode {
+			return writeJSON(out)
+		}
 		fmt.Println("No indicators found.")
 		return nil
 	}
 
 	tbl := ui.Table{Headers: []string{"TYPE", "VALUE"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft}}
-	counts := map[string]int{}
 	now := time.Now().Format(time.RFC3339)
 	for _, ind := range inds {
 		tbl.Rows = append(tbl.Rows, []string{ind.Type, ind.Value})
 		counts[ind.Type]++
+		out.Indicators = append(out.Indicators, iocJSON{Type: ind.Type, Value: ind.Value, Source: source, Time: now})
 		if c != nil {
 			if err := c.AppendIOC(cases.IOCRecord{Type: ind.Type, Value: ind.Value, Source: source, Time: now}); err != nil {
 				fmt.Fprintf(os.Stderr, "%swarning:%s append ioc: %v\n", colorYellow, colorReset, err)
 			}
 		}
 	}
-	tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	if !jsonMode {
+		tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
+	}
 	if c != nil {
 		if err := c.AppendEvent(cases.TimelineEvent{
 			Type: "ioc_extracted", Timestamp: now,
@@ -1282,7 +1598,12 @@ func (a *App) recordExtractedIOCs(source string, data []byte) error {
 		}); err != nil {
 			fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
 		}
-		fmt.Printf("→ %d indicators tracked\n", len(inds))
+		if !jsonMode {
+			fmt.Printf("→ %d indicators tracked\n", len(inds))
+		}
+	}
+	if jsonMode {
+		return writeJSON(out)
 	}
 	return nil
 }
@@ -1291,7 +1612,8 @@ func (a *App) recordExtractedIOCs(source string, data []byte) error {
 // (output files or raw text) and reports what is added, removed, or
 // shared. Useful for diffing two memory snapshots or two tool runs
 // (G7 in docs/gap-analysis.md).
-func (a *App) cmdIOCDiff(args []string) error {
+func (a *App) cmdIOCDiff(args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	if len(args) < 2 {
 		return fmt.Errorf("usage: ioc diff <fileA> <fileB>  (compare extracted indicator sets)")
 	}
@@ -1314,7 +1636,9 @@ func (a *App) cmdIOCDiff(args []string) error {
 	if err != nil {
 		return err
 	}
-	var added, removed, shared []string
+	added := make([]string, 0)
+	removed := make([]string, 0)
+	shared := make([]string, 0)
 	for k := range aSet {
 		if bSet[k] {
 			shared = append(shared, k)
@@ -1326,6 +1650,15 @@ func (a *App) cmdIOCDiff(args []string) error {
 		if !aSet[k] {
 			added = append(added, k)
 		}
+	}
+	if jsonMode {
+		return writeJSON(map[string]any{
+			"a":       args[0],
+			"b":       args[1],
+			"added":   added,
+			"removed": removed,
+			"shared":  shared,
+		})
 	}
 	fmt.Printf("%sΔ between %s and %s%s\n", colorCyan, args[0], args[1], colorReset)
 	fmt.Printf("  %sadded (only in B):%s   %d\n", colorGreen, colorReset, len(added))
@@ -1433,12 +1766,20 @@ func (a *App) cmdCorrelate(args []string) error {
 	return nil
 }
 
-func (a *App) iocList() error {
+func (a *App) iocList(jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	c := a.Cases.Current()
 	if c == nil {
 		return fmt.Errorf("no case is open")
 	}
 	iocs := c.IOCs()
+	if jsonMode {
+		out := make([]iocJSON, 0, len(iocs))
+		for _, i := range iocs {
+			out = append(out, iocJSON{Type: i.Type, Value: i.Value, Source: i.Source, Time: i.Time})
+		}
+		return writeJSON(out)
+	}
 	if len(iocs) == 0 {
 		fmt.Println("No IOCs tracked. Extract with: ioc extract <file>")
 		return nil
@@ -1451,7 +1792,19 @@ func (a *App) iocList() error {
 	return nil
 }
 
+type searchOutputJSON struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Content string `json:"content"`
+}
+
+type searchCaseJSON struct {
+	Case      string `json:"case"`
+	MatchedIn string `json:"matched_in"`
+}
+
 func (a *App) cmdSearch(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) == 0 {
 		return fmt.Errorf("usage: search <query> [--in-output]")
 	}
@@ -1476,6 +1829,13 @@ func (a *App) cmdSearch(args []string) error {
 			return fmt.Errorf("no case is open")
 		}
 		results := c.SearchOutput(q)
+		if jsonMode {
+			out := make([]searchOutputJSON, 0, len(results))
+			for _, r := range results {
+				out = append(out, searchOutputJSON{File: r.File, Line: r.Line, Content: r.Content})
+			}
+			return writeJSON(out)
+		}
 		if len(results) == 0 {
 			fmt.Println("No matching output lines.")
 			return nil
@@ -1489,6 +1849,15 @@ func (a *App) cmdSearch(args []string) error {
 	all, err := a.Cases.List()
 	if err != nil {
 		return fmt.Errorf("list cases: %w", err)
+	}
+	if jsonMode {
+		out := make([]searchCaseJSON, 0)
+		for _, c := range all {
+			if ok, where := caseMatches(c, q); ok {
+				out = append(out, searchCaseJSON{Case: c.Name, MatchedIn: where})
+			}
+		}
+		return writeJSON(out)
 	}
 	tbl := ui.Table{Headers: []string{"CASE", "MATCHED IN"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft}}
 	for _, c := range all {
@@ -1626,10 +1995,13 @@ func (a *App) cmdImport(args []string) error {
 }
 
 func (a *App) cmdTheme(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) == 0 {
-		return a.themeList()
+		return a.themeList(jsonMode)
 	}
 	switch args[0] {
+	case "list":
+		return a.themeList(jsonMode)
 	case "set":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: theme set <name>")
@@ -1678,16 +2050,39 @@ func (a *App) cmdSandbox(args []string) error {
 	case "destroy":
 		return sh.Destroy(&buf, args[1:])
 	case "list":
-		return sh.List(&buf, args[1:])
+		listArgs, jsonMode := splitJSONFlag(args[1:])
+		if jsonMode {
+			sandboxes := a.SandboxManager.List("current-case")
+			if sandboxes == nil {
+				sandboxes = []*sandbox.Sandbox{}
+			}
+			return writeJSON(sandboxes)
+		}
+		return sh.List(&buf, listArgs)
 	default:
 		return fmt.Errorf("unknown sandbox command: %s", cmd)
 	}
 }
 
-func (a *App) themeList() error {
+type themeJSON struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Current     bool   `json:"current"`
+}
+
+func (a *App) themeList(jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	current := a.Theme.Name
+	themes := theme.BuiltinThemes()
+	if jsonMode {
+		out := make([]themeJSON, 0, len(themes))
+		for _, t := range themes {
+			out = append(out, themeJSON{Name: t.Name, Description: t.Description, Current: t.Name == current})
+		}
+		return writeJSON(out)
+	}
 	fmt.Printf("  %sthemes%s\n", colorGreen, colorReset)
-	for _, t := range theme.BuiltinThemes() {
+	for _, t := range themes {
 		marker := "  "
 		if t.Name == current {
 			marker = colorGreen + "▶ " + colorReset
@@ -1792,13 +2187,31 @@ func (a *App) buildAIMessages() []ai.Message {
 	return ai.BuildContext(c, opts)
 }
 
+type pluginJSON struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     string `json:"version"`
+	Enabled     bool   `json:"enabled"`
+}
+
 func (a *App) cmdPlugin(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: plugin <list|run|info> [name]")
 	}
 	switch args[0] {
 	case "list":
+		_, jsonMode := splitJSONFlag(args[1:])
 		names := a.Plugins.List()
+		if jsonMode {
+			out := make([]pluginJSON, 0, len(names))
+			for _, name := range names {
+				p, _ := a.Plugins.Get(name)
+				if p != nil {
+					out = append(out, pluginJSON{Name: p.Name, Description: p.Description, Version: p.Version, Enabled: p.Enabled})
+				}
+			}
+			return writeJSON(out)
+		}
 		if len(names) == 0 {
 			fmt.Println("No plugins discovered.")
 			return nil
@@ -1825,12 +2238,16 @@ func (a *App) cmdPlugin(args []string) error {
 			return fmt.Errorf("plugin %s: %w", p.Name, err)
 		}
 	case "info":
-		if len(args) < 2 {
+		infoArgs, jsonMode := splitJSONFlag(args[1:])
+		if len(infoArgs) < 1 {
 			return fmt.Errorf("usage: plugin info <name>")
 		}
-		p, ok := a.Plugins.Get(args[1])
+		p, ok := a.Plugins.Get(infoArgs[0])
 		if !ok {
-			return fmt.Errorf("plugin not found: %s", args[1])
+			return fmt.Errorf("plugin not found: %s", infoArgs[0])
+		}
+		if jsonMode {
+			return writeJSON(pluginJSON{Name: p.Name, Description: p.Description, Version: p.Version, Enabled: p.Enabled})
 		}
 		fmt.Printf("  Name:        %s\n", p.Name)
 		fmt.Printf("  Description: %s\n", p.Description)
@@ -2190,6 +2607,7 @@ func (a *App) cmdBuild(args []string) error {
 }
 
 func (a *App) cmdEvidence(args []string) error {
+	args, jsonMode := splitJSONFlag(args)
 	if len(args) == 0 {
 		return fmt.Errorf("unknown command: evidence — use %q", "evidence list")
 	}
@@ -2199,18 +2617,37 @@ func (a *App) cmdEvidence(args []string) error {
 	}
 	switch args[0] {
 	case "list":
-		return a.evidenceList(c)
+		return a.evidenceList(c, jsonMode)
 	case "add":
-		return a.evidenceAdd(c, args[1:])
+		return a.evidenceAdd(c, args[1:], jsonMode)
 	case "tag":
-		return a.evidenceTag(c, args[1:])
+		return a.evidenceTag(c, args[1:], jsonMode)
 	case "verify":
-		return a.evidenceVerify(c, args[1:])
+		return a.evidenceVerify(c, args[1:], jsonMode)
 	case "classify":
-		return a.evidenceClassify(c, args[1:])
+		return a.evidenceClassify(c, args[1:], jsonMode)
 	default:
 		return fmt.Errorf("unknown command: evidence %s — use \"evidence list\"", args[0])
 	}
+}
+
+type evidenceJSON struct {
+	Name           string   `json:"name"`
+	Path           string   `json:"path,omitempty"`
+	SHA256         string   `json:"sha256"`
+	Size           int64    `json:"size"`
+	Source         string   `json:"source,omitempty"`
+	AddedAt        string   `json:"added_at,omitempty"`
+	Tags           []string `json:"tags"`
+	SuggestedTools []string `json:"suggested_tools,omitempty"`
+}
+
+type evidenceVerifyJSON struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Expected string `json:"expected,omitempty"`
+	Actual   string `json:"actual,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // expandHome expands a leading "~" to the current user's home directory.
@@ -2229,7 +2666,8 @@ func expandHome(path string) string {
 	return filepath.Join(home, path[2:])
 }
 
-func (a *App) evidenceAdd(c *cases.Case, args []string) error {
+func (a *App) evidenceAdd(c *cases.Case, args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	var src string
 	var tags []string
 	for i := 0; i < len(args); i++ {
@@ -2291,14 +2729,32 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
 	}
+
+	// Low-friction tool suggestion (G4): point the analyst at the right tool.
+	sug := suggestTool(filepath.Join(c.Path, "evidence", name))
+	if jsonMode {
+		if tags == nil {
+			tags = []string{}
+		}
+		return writeJSON(evidenceJSON{
+			Name:           name,
+			Path:           dest,
+			SHA256:         sum,
+			Size:           info.Size(),
+			Source:         src,
+			AddedAt:        now,
+			Tags:           tags,
+			SuggestedTools: sug,
+		})
+	}
+
 	short := sum
 	if len(short) > 12 {
 		short = short[:12]
 	}
 	fmt.Printf("added evidence %s%s%s  %s\n", colorGreen, name, colorReset, short)
 
-	// Low-friction tool suggestion (G4): point the analyst at the right tool.
-	if sug := suggestTool(filepath.Join(c.Path, "evidence", name)); len(sug) > 0 {
+	if len(sug) > 0 {
 		fmt.Printf("%ssuggested tool(s):%s %s\n", colorDim, colorReset, strings.Join(sug, ", "))
 	}
 
@@ -2319,7 +2775,8 @@ func (a *App) evidenceAdd(c *cases.Case, args []string) error {
 	return nil
 }
 
-func (a *App) evidenceTag(c *cases.Case, args []string) error {
+func (a *App) evidenceTag(c *cases.Case, args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	if len(args) < 2 {
 		return fmt.Errorf("usage: evidence tag <name> <tag>...")
 	}
@@ -2334,17 +2791,22 @@ func (a *App) evidenceTag(c *cases.Case, args []string) error {
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "%swarning:%s append timeline: %v\n", colorYellow, colorReset, err)
 	}
+	if jsonMode {
+		return writeJSON(map[string]any{"name": name, "tags": tags})
+	}
 	fmt.Printf("tagged %s: %s\n", name, strings.Join(tags, ", "))
 	return nil
 }
 
-func (a *App) evidenceVerify(c *cases.Case, args []string) error {
+func (a *App) evidenceVerify(c *cases.Case, args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	want := ""
 	if len(args) > 0 {
 		want = args[0]
 	}
 	ok := true
 	checked := 0
+	results := make([]evidenceVerifyJSON, 0)
 	for _, e := range c.Evidence() {
 		if want != "" && e.Name != want {
 			continue
@@ -2353,20 +2815,38 @@ func (a *App) evidenceVerify(c *cases.Case, args []string) error {
 		path := filepath.Join(c.Path, "evidence", e.Name)
 		sum, err := hashFile(path)
 		if err != nil {
-			fmt.Printf("%s%-20s MISSING%s\n", colorRed, e.Name, colorReset)
+			if !jsonMode {
+				fmt.Printf("%s%-20s MISSING%s\n", colorRed, e.Name, colorReset)
+			}
+			results = append(results, evidenceVerifyJSON{Name: e.Name, Status: "missing", Error: err.Error()})
 			ok = false
 			continue
 		}
 		if sum != e.SHA256 {
-			fmt.Printf("%s%-20s MISMATCH%s\n", colorRed, e.Name, colorReset)
+			if !jsonMode {
+				fmt.Printf("%s%-20s MISMATCH%s\n", colorRed, e.Name, colorReset)
+			}
+			results = append(results, evidenceVerifyJSON{Name: e.Name, Status: "mismatch", Expected: e.SHA256, Actual: sum})
 			ok = false
 		} else {
-			fmt.Printf("%s%-20s ok%s\n", colorGreen, e.Name, colorReset)
+			if !jsonMode {
+				fmt.Printf("%s%-20s ok%s\n", colorGreen, e.Name, colorReset)
+			}
+			results = append(results, evidenceVerifyJSON{Name: e.Name, Status: "ok", Expected: e.SHA256, Actual: sum})
 		}
 	}
 	if want != "" && checked == 0 {
-		fmt.Printf("evidence not found: %s\n", want)
+		if jsonMode {
+			_ = writeJSON(map[string]any{"error": "evidence not found: " + want, "results": results})
+		} else {
+			fmt.Printf("evidence not found: %s\n", want)
+		}
 		return fmt.Errorf("evidence not found: %s", want)
+	}
+	if jsonMode {
+		if err := writeJSON(map[string]any{"ok": ok, "results": results}); err != nil {
+			return err
+		}
 	}
 	if !ok {
 		return fmt.Errorf("evidence verification found problems")
@@ -2422,7 +2902,8 @@ func suggestTool(path string) []string {
 	return nil
 }
 
-func (a *App) evidenceClassify(c *cases.Case, args []string) error {
+func (a *App) evidenceClassify(c *cases.Case, args []string, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	name := ""
 	if len(args) > 0 {
 		name = args[0]
@@ -2439,6 +2920,12 @@ func (a *App) evidenceClassify(c *cases.Case, args []string) error {
 		path = filepath.Join(c.Path, "evidence", name)
 	}
 	sug := suggestTool(path)
+	if jsonMode {
+		if sug == nil {
+			sug = []string{}
+		}
+		return writeJSON(map[string]any{"name": name, "suggested_tools": sug})
+	}
 	if len(sug) == 0 {
 		fmt.Printf("%s%s%s — no specific tool suggestion (generic analysis: ioc, search).\n", colorCyan, name, colorReset)
 		return nil
@@ -2447,8 +2934,27 @@ func (a *App) evidenceClassify(c *cases.Case, args []string) error {
 	return nil
 }
 
-func (a *App) evidenceList(c *cases.Case) error {
+func (a *App) evidenceList(c *cases.Case, jsonFlags ...bool) error {
+	jsonMode := jsonFlagEnabled(jsonFlags)
 	ev := c.Evidence()
+	if jsonMode {
+		out := make([]evidenceJSON, 0, len(ev))
+		for _, e := range ev {
+			tags := e.Tags
+			if tags == nil {
+				tags = []string{}
+			}
+			out = append(out, evidenceJSON{
+				Name:    e.Name,
+				SHA256:  e.SHA256,
+				Size:    e.Size,
+				Source:  e.Source,
+				AddedAt: e.AddedAt,
+				Tags:    tags,
+			})
+		}
+		return writeJSON(out)
+	}
 	if len(ev) == 0 {
 		fmt.Println("No evidence tracked. Add with: evidence add <path>")
 		return nil

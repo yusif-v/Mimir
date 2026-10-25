@@ -97,7 +97,7 @@ func TestCmdAnalyzeReusesExistingEvidenceByHash(t *testing.T) {
 	if err := os.WriteFile(original, data, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.evidenceAdd(c, []string{original}); err != nil {
+	if err := app.evidenceAdd(c, []string{original}, false); err != nil {
 		t.Fatalf("evidenceAdd(original): %v", err)
 	}
 
