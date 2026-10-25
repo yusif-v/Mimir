@@ -246,3 +246,37 @@ func TestToolExplorerInitFiresRefreshWhenResolved(t *testing.T) {
 		t.Errorf("Init without resolver should return nil, got %T", cmd)
 	}
 }
+
+func TestToolExplorerShowsSourceLabels(t *testing.T) {
+	entries := []ToolEntry{
+		{Name: "hash", Description: "digests", Source: SourceBuiltin, Status: tools.StatusReady},
+		{Name: "yara", Description: "pattern matching", Source: SourceAvailable, Status: tools.StatusNotBuilt},
+		{Name: "tshark", Description: "packet capture", Source: SourceInstalled, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+
+	view := model.View()
+	for _, want := range []string{"[builtin]", "[available]", "[installed]"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view should label source %q, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestToolExplorerEmptyStateKeepsChrome(t *testing.T) {
+	entries := []ToolEntry{
+		{Name: "volatility", Description: "memory", Source: SourceAvailable, Status: tools.StatusNotBuilt},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.SetActiveKey("ready")
+
+	view := model.View()
+	for _, want := range []string{"Tools", "[1] All", "[q] Quit", "0 tools"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("empty state should keep chrome %q, got:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "No tools match the current filter") {
+		t.Errorf("empty state should not drop back to a bare message, got:\n%s", view)
+	}
+}

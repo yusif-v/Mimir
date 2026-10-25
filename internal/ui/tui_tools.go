@@ -11,11 +11,19 @@ import (
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
+// Tool source labels, used to tell where an explorer row came from.
+const (
+	SourceBuiltin   = "builtin"
+	SourceInstalled = "installed"
+	SourceAvailable = "available"
+)
+
 // ToolEntry is a single row in the tool explorer.
 type ToolEntry struct {
 	Name        string
 	Description string
 	Category    string
+	Source      string
 	Status      tools.Status
 	Runs        int
 	Tags        []string
@@ -76,23 +84,40 @@ type ToolExplorer struct {
 	errMsg     string
 }
 
-// NewToolExplorer creates a new tool explorer from Mimir's tool registry.
+// NewToolExplorer creates a new tool explorer from Mimir's installed tool
+// registry. Built-in and catalog entries should be passed through
+// NewToolExplorerFromEntries instead.
 func NewToolExplorer(definitions []*tools.Definition, statuses map[string]tools.Status, runCounts map[string]int) *ToolExplorer {
 	entries := make([]ToolEntry, 0, len(definitions))
-	catSet := map[string]bool{}
 	for _, def := range definitions {
-		status := statuses[def.Name]
-		if def.Category != "" {
-			catSet[def.Category] = true
-		}
 		entries = append(entries, ToolEntry{
 			Name:        def.Name,
 			Description: def.Description,
 			Category:    def.Category,
-			Status:      status,
-			Runs:        runCounts[def.Name],
+			Source:      SourceInstalled,
 			Tags:        def.Tags,
 		})
+	}
+	return NewToolExplorerFromEntries(entries, statuses, runCounts)
+}
+
+// NewToolExplorerFromEntries creates a tool explorer from pre-merged entries,
+// preserving each entry's source (builtin, installed or available). Statuses
+// and run counts are applied by name where present.
+func NewToolExplorerFromEntries(entries []ToolEntry, statuses map[string]tools.Status, runCounts map[string]int) *ToolExplorer {
+	merged := make([]ToolEntry, 0, len(entries))
+	catSet := map[string]bool{}
+	for _, entry := range entries {
+		if status, ok := statuses[entry.Name]; ok {
+			entry.Status = status
+		}
+		if runs, ok := runCounts[entry.Name]; ok {
+			entry.Runs = runs
+		}
+		if entry.Category != "" {
+			catSet[entry.Category] = true
+		}
+		merged = append(merged, entry)
 	}
 	categories := make([]string, 0, len(catSet))
 	for c := range catSet {
@@ -100,7 +125,7 @@ func NewToolExplorer(definitions []*tools.Definition, statuses map[string]tools.
 	}
 	sort.Strings(categories)
 	return &ToolExplorer{
-		tools:      entries,
+		tools:      merged,
 		activeKey:  "all",
 		categories: categories,
 	}
@@ -224,9 +249,6 @@ func (m *ToolExplorer) cycleCategory() {
 // View renders the tool explorer.
 func (m *ToolExplorer) View() string {
 	visible := m.filtered()
-	if len(visible) == 0 {
-		return "No tools match the current filter"
-	}
 
 	// Clip to the viewport: show a window around the cursor.
 	window := visible
@@ -271,9 +293,15 @@ func (m *ToolExplorer) View() string {
 
 		statusLabel := lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(tool.Status.String())
 
-		line := fmt.Sprintf("%s %s%s%s — %s  %s%s",
+		source := tool.Source
+		if source == "" {
+			source = SourceInstalled
+		}
+
+		line := fmt.Sprintf("%s %s [%s]%s%s — %s  %s%s",
 			coloredIcon,
 			tool.Name,
+			source,
 			tags,
 			categorySuffix(tool),
 			tool.Description,
@@ -289,13 +317,19 @@ func (m *ToolExplorer) View() string {
 		Foreground(lipgloss.Color("39")).
 		Render(fmt.Sprintf("Tools  [1] All  [2] Ready  [3] Needs Attention  [c] Category: %s  [r] Refresh  [Enter] Run  [q] Quit", categoryLabel(m.category)))
 
-	body := lipgloss.JoinVertical(lipgloss.Left, items...)
-	footer := ""
+	var body string
+	if len(items) > 0 {
+		body = lipgloss.JoinVertical(lipgloss.Left, items...)
+	}
+
+	count := fmt.Sprintf("%d tools", len(visible))
+	if len(visible) == 1 {
+		count = "1 tool"
+	}
+	footer := "\n" + count
 	if len(window) < len(visible) {
 		footer = fmt.Sprintf("\nShowing %d of %d tools (scroll with j/k)",
 			len(window), len(visible))
-	} else if len(visible) > 1 {
-		footer = fmt.Sprintf("\n%d tools", len(visible))
 	}
 	if m.errMsg != "" {
 		footer += fmt.Sprintf("\nRefresh failed: %s", m.errMsg)
