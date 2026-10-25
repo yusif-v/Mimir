@@ -653,6 +653,7 @@ func (a *App) cmdDashboard(args []string) error {
 	}
 
 	model := ui.NewToolExplorerFromEntries(entries, statuses, a.toolRunCounts())
+	model.SetTheme(a.Theme)
 	model.SetResolver(func() (map[string]tools.Status, bool) {
 		return a.Runner.ResolveStatuses(installed)
 	})

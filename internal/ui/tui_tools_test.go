@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/yusif-v/mimir/internal/theme"
 	"github.com/yusif-v/mimir/internal/tools"
 )
 
@@ -278,5 +279,213 @@ func TestToolExplorerEmptyStateKeepsChrome(t *testing.T) {
 	}
 	if strings.Contains(view, "No tools match the current filter") {
 		t.Errorf("empty state should not drop back to a bare message, got:\n%s", view)
+	}
+}
+
+func TestToolExplorerWidthBounded(t *testing.T) {
+	entries := []ToolEntry{
+		{Name: "hash", Description: "md5/sha1/sha256 digests of a file", Category: "hashing", Source: SourceBuiltin, Status: tools.StatusReady, Runs: 3},
+		{Name: "volatility", Description: strings.Repeat("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima ", 3) + "zulu", Category: "forensics", Source: SourceAvailable, Status: tools.StatusNotBuilt, Tags: []string{"docker", "memory"}},
+		{Name: "日本語", Description: "wide tool name alignment check", Category: "forensics", Source: SourceBuiltin, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+
+	for _, width := range []int{80, 120, 200} {
+		model.Update(tea.WindowSizeMsg{Width: width, Height: 60})
+		view := model.View()
+		for n, line := range strings.Split(view, "\n") {
+			if got := displayWidth(line); got > width {
+				t.Errorf("width %d: line %d is %d columns: %q", width, n, got, line)
+			}
+		}
+	}
+
+	model.Update(tea.WindowSizeMsg{Width: 80, Height: 60})
+	view := model.View()
+	if !strings.Contains(view, "zulu") {
+		t.Fatalf("wrapped description lost its final word:\n%s", view)
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "zulu") {
+			if leading := len(line) - len(strings.TrimLeft(line, " ")); leading <= explorerIndent {
+				t.Errorf("continuation line should be indented past the row indent, got %q", line)
+			}
+		}
+	}
+}
+
+func TestToolExplorerCJKNameAlignment(t *testing.T) {
+	entries := []ToolEntry{
+		{Name: "hash", Description: "digests", Category: "forensics", Source: SourceBuiltin, Status: tools.StatusReady},
+		{Name: "日本語", Description: "wide name", Category: "forensics", Source: SourceBuiltin, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	view := model.View()
+
+	var columns []int
+	for _, line := range strings.Split(view, "\n") {
+		if idx := strings.Index(line, "[builtin]"); idx >= 0 {
+			columns = append(columns, displayWidth(line[:idx]))
+		}
+	}
+	if len(columns) != 2 {
+		t.Fatalf("expected two source columns, got %v in:\n%s", columns, view)
+	}
+	if columns[0] != columns[1] {
+		t.Errorf("CJK name broke column alignment: %v", columns)
+	}
+}
+
+func TestToolExplorerThemeColours(t *testing.T) {
+	entries := []ToolEntry{
+		{Name: "hash", Description: "digests", Category: "hashing", Source: SourceBuiltin, Status: tools.StatusReady, Runs: 2},
+		{Name: "volatility", Description: "memory", Category: "forensics", Source: SourceAvailable, Status: tools.StatusNotBuilt},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+
+	def := model.View()
+	model.SetTheme(theme.KaliTheme())
+	kali := model.View()
+	if def == kali {
+		t.Error("default and kali themes rendered identically")
+	}
+	if !strings.Contains(def, "\033[34m") {
+		t.Errorf("default theme should use the default brand colour, got %q", def)
+	}
+	if !strings.Contains(kali, "\033[96m") {
+		t.Errorf("kali theme should use bright cyan, got %q", kali)
+	}
+
+	model.SetTheme(theme.NoColorTheme())
+	plain := model.View()
+	if strings.Contains(plain, "\033[") {
+		t.Errorf("no-color theme should emit no ANSI escapes, got %q", plain)
+	}
+
+	model.SetTheme(theme.Theme{Name: "partial", Colors: theme.ColorMap{Brand: "magenta"}})
+	partial := model.View()
+	if !strings.Contains(partial, "\033[35m") {
+		t.Errorf("partial theme should keep its brand colour, got %q", partial)
+	}
+	if strings.Contains(partial, "\033[m") || strings.Contains(partial, "\033[;m") {
+		t.Errorf("partial theme produced an empty colour sequence: %q", partial)
+	}
+}
+
+func TestToolExplorerNoColorRespected(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	entries := []ToolEntry{
+		{Name: "hash", Description: "digests", Category: "hashing", Source: SourceBuiltin, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	model.SetTheme(theme.DefaultTheme())
+
+	view := model.View()
+	if strings.Contains(view, "\033[") {
+		t.Errorf("NO_COLOR should suppress all ANSI escapes, got %q", view)
+	}
+}
+
+func TestToolExplorerSearch(t *testing.T) {
+	model, _, _, _ := explorerFixture()
+
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if !model.searching {
+		t.Fatal("slash should open the search input")
+	}
+	for _, r := range "DYNAMIC" {
+		model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	view := model.View()
+	if !strings.Contains(view, "Search: DYNAMIC") {
+		t.Errorf("header should show the active search term, got:\n%s", view)
+	}
+	if !strings.Contains(view, "cuckoo") {
+		t.Errorf("search should match tags case-insensitively, got:\n%s", view)
+	}
+	if strings.Contains(view, "hash") || strings.Contains(view, "volatility") {
+		t.Errorf("search should filter out non-matching tools, got:\n%s", view)
+	}
+
+	model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if model.query != "" || model.searching {
+		t.Fatalf("esc should clear the search, got query %q searching %v", model.query, model.searching)
+	}
+	view = model.View()
+	if !strings.Contains(view, "hash") || !strings.Contains(view, "volatility") || !strings.Contains(view, "cuckoo") {
+		t.Errorf("clearing the search should restore the full list, got:\n%s", view)
+	}
+}
+
+func TestToolExplorerSearchFields(t *testing.T) {
+	tests := []struct {
+		query string
+		want  string
+	}{
+		{"vol", "volatility"},
+		{"Malware", "cuckoo"},
+		{"forensics", "volatility"},
+		{"DOCKER", "volatility"},
+	}
+	for _, tt := range tests {
+		model, _, _, _ := explorerFixture()
+		model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		for _, r := range tt.query {
+			model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		if view := model.View(); !strings.Contains(view, tt.want) {
+			t.Errorf("query %q should match %q, got:\n%s", tt.query, tt.want, view)
+		}
+	}
+}
+
+func TestToolExplorerSearchConsumesShortcutKeys(t *testing.T) {
+	entries := []ToolEntry{
+		{Name: "jhash", Description: "j digests", Category: "one", Source: SourceBuiltin, Status: tools.StatusReady},
+		{Name: "jvolatility", Description: "j memory", Category: "two", Source: SourceAvailable, Status: tools.StatusNotBuilt},
+		{Name: "jcuckoo", Description: "j malware", Category: "three", Source: SourceInstalled, Status: tools.StatusReady},
+	}
+	model := NewToolExplorerFromEntries(entries, nil, nil)
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model.cursor = 1
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if cmd != nil {
+		t.Error("typing in search should not return a command")
+	}
+	if model.cursor != 1 {
+		t.Errorf("typing j in search moved the cursor to %d", model.cursor)
+	}
+	if model.query != "j" {
+		t.Errorf("typing j in search should append to the query, got %q", model.query)
+	}
+
+	for _, r := range "ckr" {
+		model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if model.query != "jckr" {
+		t.Errorf("shortcut keys should type into search, got %q", model.query)
+	}
+	if model.activeKey != "all" || model.category != "" {
+		t.Errorf("search keys changed filters: activeKey=%q category=%q", model.activeKey, model.category)
+	}
+}
+
+func TestToolExplorerSearchNoMatchesKeepsChrome(t *testing.T) {
+	model, _, _, _ := explorerFixture()
+	model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "zzz" {
+		model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	view := model.View()
+	for _, want := range []string{"Tools", "[1] All", "[q] Quit", "0 tools", "Search: zzz"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("empty search should keep chrome %q, got:\n%s", want, view)
+		}
 	}
 }
