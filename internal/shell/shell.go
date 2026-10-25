@@ -656,7 +656,71 @@ func (a *App) cmdRun(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("usage: run <tool_name> [args...]")
 	}
-	return a.runToolByName(args[0], args[1:])
+	toolArgs, err := a.resolveRunArgs(args[1:])
+	if err != nil {
+		return err
+	}
+	return a.runToolByName(args[0], toolArgs)
+}
+
+// resolveRunArgs rewrites relative path arguments to absolute paths inside the
+// open case. This lets `run hash evidence/sample.bin` and `run hash sample.bin`
+// work from any working directory, while absolute paths are passed through
+// unchanged. Non-path arguments (flags, plugin names, numbers) are left alone.
+func (a *App) resolveRunArgs(args []string) ([]string, error) {
+	out := make([]string, len(args))
+	for i, arg := range args {
+		resolved, err := a.resolveRunArg(arg)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = resolved
+	}
+	return out, nil
+}
+
+func (a *App) resolveRunArg(arg string) (string, error) {
+	if arg == "" || filepath.IsAbs(arg) {
+		return arg, nil
+	}
+
+	c := a.Cases.Current()
+	if c != nil {
+		// `evidence/file` resolves under the case root; a bare basename falls
+		// through to the evidence directory.
+		for _, base := range []string{c.Path, filepath.Join(c.Path, "evidence")} {
+			candidate := filepath.Join(base, arg)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+	}
+
+	// Preserve the existing cwd-relative behaviour for files that really are
+	// relative to where Mimir was started.
+	if _, err := os.Stat(arg); err == nil {
+		return arg, nil
+	}
+
+	if !looksLikePathArg(arg) {
+		return arg, nil
+	}
+	if c == nil {
+		return "", fmt.Errorf("file not found: %s (no case is open — open a case or use an absolute path)", arg)
+	}
+	return "", fmt.Errorf("file not found in case %q: %s (looked in %s and its evidence directory)", c.Name, arg, c.Path)
+}
+
+// looksLikePathArg distinguishes a path-shaped tool argument from a flag value
+// or other bare token, so only real paths produce a resolution error.
+func looksLikePathArg(arg string) bool {
+	if arg == "" || strings.HasPrefix(arg, "-") {
+		return false
+	}
+	if strings.ContainsAny(arg, `/\`) || arg == "." || arg == ".." || strings.HasPrefix(arg, ".") {
+		return true
+	}
+	return filepath.Ext(arg) != ""
 }
 
 // runToolByName runs a named tool with the given args, prints its output, and
