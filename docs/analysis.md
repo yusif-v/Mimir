@@ -4,15 +4,14 @@ Three dedicated commands wrap Docker images so you get first-class analysis
 without remembering container plumbing. All run output is captured to the case,
 recorded on the timeline, and scanned for IOCs automatically.
 
-## Volatility (memory)
+## Memory (Volatility)
 
 ```
-volatility <plugin> [-f <dump>] [--offline] [args...]
-mem <plugin> [-f <dump>] [--offline] [args...]        # alias
+memory <plugin> [-f <dump>] [--offline] [args...]
 ```
 
 Runs Volatility 3 inside `dfir-volatility:latest` (built from the catalog
-template with `build volatility`).
+template with `tool build volatility`).
 
 - **Dump selection**: `-f <dump>` (a case-relative or absolute path, also
   accepted as `-f=<dump>`) picks the image explicitly. Without `-f`, the most
@@ -29,20 +28,19 @@ Example:
 
 ```
 evidence add ram.bin --tag memory-dump
-volatility windows.info
-volatility windows.pstree
-volatility windows.cmdline.CmdLine --offline
+memory windows.info
+memory windows.pstree
+memory windows.cmdline.CmdLine --offline
 ```
 
 ## Disk (SleuthKit)
 
 ```
 disk <tool> [-i <image>] [args...]
-sleuthkit <tool> [args...]    (alias)
 ```
 
-First-class disk-forensics command — the counterpart of `volatility`. Runs a
-TSK command inside `dfir-sleuthkit:latest` (build with `build sleuthkit`).
+First-class disk-forensics command — the counterpart of `memory`. Runs a
+TSK command inside `dfir-sleuthkit:latest` (build with `tool build sleuthkit`).
 
 The image is resolved from `-i` (absolute, or relative to the case evidence
 dir; substring match supported), or auto-selected from evidence tagged
@@ -72,10 +70,10 @@ disk icat -i disk.img 128-128-1 > output/recovered.bin   # shell redirect outsid
 ## RegRipper (registry)
 
 ```
-regripper [hive] [-p <plugin>] [--json]
+registry [hive] [-p <plugin>] [--json]
 ```
 
-Runs RegRipper inside `dfir-regripper:latest` (build with `build regripper`).
+Runs RegRipper inside `dfir-regripper:latest` (build with `tool build regripper`).
 The hive is resolved like `disk`: positional name (absolute / relative to case
 evidence / substring), auto-selected from evidence tagged `registry-hive`, else
 the most recently added evidence. Only the hive is mounted read-only into the
@@ -94,15 +92,15 @@ Example:
 
 ```
 evidence add NTUSER.DAT --tag registry-hive
-regripper -p userassist
-regripper NTUSER.DAT --json
-regripper evidence/SYSTEM --json
+registry -p userassist
+registry NTUSER.DAT --json
+registry evidence/SYSTEM --json
 ```
 
-## Static Analysis (analyze)
+## Static Analysis (tool analyze)
 
 ```
-analyze <path> [--rules <path>]
+tool analyze <path> [--rules <path>]
 ```
 
 Auto-detects the sample's file type by magic bytes (PE, ELF, legacy OLE
@@ -113,7 +111,7 @@ Office docs, OOXML Office docs) and runs the applicable static tools:
 - **unknown**: `yara` only
 
 The sample is registered as case evidence first. Each tool's output is
-recorded to the timeline and scanned for IOCs exactly like a manual `run`.
+recorded to the timeline and scanned for IOCs exactly like a manual `tool run`.
 capa's ATT&CK-mapped capabilities are recorded as `capability` IOCs (e.g.
 `T1055 Process Injection`) instead of raw text.
 
@@ -128,16 +126,16 @@ must live under `<case>/evidence/` for yara to be able to read it:
 
 Without a resolvable rules file, yara is skipped with a warning.
 
-A tool that isn't installed is skipped with a warning (`install <name>` to
-add it) — `analyze` always finishes and reports what it could gather.
+A tool that isn't installed is skipped with a warning (`tool install <name>` to
+add it) — `tool analyze` always finishes and reports what it could gather.
 
 Example:
 
 ```
-install capa
-build capa
-analyze suspicious.exe
+tool install capa
+tool build capa
+tool analyze suspicious.exe
 ```
 
-`analyze` registers the sample as case evidence automatically — no need to
+`tool analyze` registers the sample as case evidence automatically — no need to
 run `evidence add` first.

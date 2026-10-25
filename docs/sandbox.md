@@ -44,7 +44,7 @@ sandbox record and shown in `sandbox report`.
 ## Capturing tool runs
 
 `sandbox run <id> -- <tool> [args...]` captures the tool output back into the
-open case, exactly like the dedicated `volatility` command: it appends a
+open case, exactly like the dedicated `memory` command: it appends a
 `tool_run` timeline event and auto-extracts IOCs from the output. Use it to run
 tools that are not Mimir commands — e.g.
 

@@ -8,14 +8,14 @@ an immutable timeline.
 
 | Command | Description |
 |---|---|
-| `case -n <name>` | Create a new case |
-| `case -n <name> -t <template>` | Create a case from a named template |
-| `case -o <name>` | Open a case (start appending to its timeline) |
-| `case -c` | Close the current case |
+| `case create <name>` | Create a new case |
+| `case create <name> -t <template>` | Create a case from a named template |
+| `case open <name>` | Open a case (start appending to its timeline) |
+| `case close` | Close the current case |
 | `case templates` | List available case templates |
-| `cases` | List all cases |
-| `cases --status open` / `--status closed` | Filter by status |
-| `status` | Show the current case (name, path, tools used, note count) |
+| `case list` | List all cases |
+| `case list --status open` / `--status closed` | Filter by status |
+| `case status` | Show the current case (name, path, tools used, note count) |
 
 A case must be open before evidence, notes, tools, or IOCs are recorded — the
 shell shows the current case in the prompt, e.g.
@@ -42,7 +42,7 @@ default_tags:       # default evidence tags
   - ir
 initial_notes:      # notes added as authored by "system"
   - "Case created via incident response template"
-recommended_tools:  # surfaced in `ai suggest` and dashboard
+recommended_tools:  # surfaced in `ai suggest` and `tool dashboard`
   - volatility
 ```
 

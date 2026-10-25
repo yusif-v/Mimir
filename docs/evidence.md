@@ -6,11 +6,11 @@ case.
 
 ## Evidence
 
-`evidence` (alias `ev`) manages the evidence index for the current case.
+`evidence` manages the evidence index for the current case.
 
 | Command | Description |
 |---|---|
-| `evidence` | List evidence (name, SHA-256 prefix, size, tags) |
+| `evidence list` | List evidence (name, SHA-256 prefix, size, tags) |
 | `evidence add <path> [--tag a,b]` | Add a file to the case and index it |
 | `evidence tag <name> <tag>...` | Add tags to evidence |
 | `evidence verify [name]` | Verify stored evidence against recorded hashes |
@@ -32,7 +32,7 @@ case.
 ### Tags
 
 Tags are free-form strings (`--tag malware,packed`). The `memory-dump` tag is
-special: it is how `volatility` auto-selects which evidence file to analyze.
+special: it is how `memory` auto-selects which evidence file to analyze.
 
 ## IOCs
 
@@ -41,9 +41,9 @@ special: it is how `volatility` auto-selects which evidence file to analyze.
 
 | Command | Description |
 |---|---|
-| `ioc` | List tracked IOCs (type / value / source) |
-| `ioc <file>` | Extract indicators from a file and track them |
-| `ioc --from-output <name>` | Extract from a captured tool output file |
+| `ioc list` | List tracked IOCs (type / value / source) |
+| `ioc extract <file>` | Extract indicators from a file and track them |
+| `ioc from-output <tool>` | Extract from a captured tool output file |
 | `ioc diff <fileA> <fileB>` | Compare the indicator sets of two sources |
 
 ### Extraction types
@@ -51,9 +51,9 @@ special: it is how `volatility` auto-selects which evidence file to analyze.
 The extractor recognizes common indicator types such as IP addresses, domains,
 URLs, email addresses, and file hashes.
 
-- `ioc --from-output <name>` reads `<case>/output/<name>` — e.g.
-  `ioc --from-output volatility`. This is exactly what tool runs do
-  automatically.
+- `ioc from-output <tool>` reads the most recent captured output for that
+  tool in `<case>/output/` — e.g. `ioc from-output volatility`. This is exactly
+  what tool runs do automatically.
 - `ioc diff <a> <b>` prints `added (only in B)`, `removed (only in A)`, and
   `shared` counts with per-indicator detail. Useful for comparing two memory
   snapshots or two tool runs.
@@ -68,7 +68,7 @@ assigned a domain based on the tool that produced it:
 
 | Source contains | Domain |
 |---|---|
-| `volatility`, `mem` | memory |
+| `volatility` | memory |
 | `sleuthkit`, `icat`, `fls` | disk |
 | `zeek`, `tshark` | network |
 | anything else | other |
@@ -78,19 +78,19 @@ by both `volatility` and `zeek` suggests a stronger connection than one found by
 a single tool. `--dot` emits a Graphviz DOT description.
 
 With no IOCs yet, it suggests extracting some first
-(`ioc`, `volatility`, `sandbox run -- <tool>`).
+(`ioc list`, `memory <plugin>`, `sandbox run -- <tool>`).
 
 ## Timeline
 
-Every action in a case is appended as a timestamped event. `timeline` displays
-them, newest-last, with filters.
+Every action in a case is appended as a timestamped event. `timeline list`
+displays them, newest-last, with filters.
 
 | Command | Description |
 |---|---|
-| `timeline` | Show the timeline |
-| `timeline -n <N>` | Show only the last N events |
-| `timeline --type <t1,t2>` | Filter to event types |
-| `timeline --grep <pattern>` | Show events matching a pattern |
+| `timeline list` | Show the timeline |
+| `timeline list -n <N>` | Show only the last N events |
+| `timeline list --type <t1,t2>` | Filter to event types |
+| `timeline list --grep <pattern>` | Show events matching a pattern |
 | `timeline export [path] [--format csv\|json]` | Write the timeline to a file |
 | `timeline build` | Write a prose narrative to `output/narrative.md` |
 | `timeline correlate` | Cross-tool view: tool-run counts + indicators by type |

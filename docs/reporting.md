@@ -63,7 +63,7 @@ import ~/cases/incident-42.tar.gz --as incident-43
 ## Dashboard
 
 ```
-dashboard    # or: dash
+tool dashboard
 ```
 
 A full-screen interactive TUI (bubbletea, alternate screen) with a single,

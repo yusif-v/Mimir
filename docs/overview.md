@@ -91,8 +91,8 @@ Secrets (the API key) are redacted by `ai config` and never logged.
 
 - **Prompt**: shows the current case, e.g. `[user][mimir][incident-42] ❯`.
   The status line is rendered separately to avoid readline corruption.
-- **Completion**: Tab completes commands, tool names (run/use/install/build),
-  case names, and file paths.
+- **Completion**: Tab completes command domains, tool names (`tool run`,
+  `tool install`, `tool build`, `tool info`), case names, and file paths.
 - **History**: arrow keys / Ctrl+R search; persisted to `~/.mimir/.history`.
 - **Ctrl+C** cancels the current input; **Ctrl+D** exits.
 - **Shell passthrough**: any unknown command is executed by the system shell,

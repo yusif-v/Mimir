@@ -3,13 +3,12 @@
 Mimir runs analysis through three kinds of tools, all invoked the same way:
 
 ```
-run <tool_name> [args...]
+tool run <name> [args...]
 ```
 
-Every `run` captures stdout into `<case>/output/`, records a `tool_run` timeline
-event (tool, args, return code, duration, output file), and automatically scans
-the output for IOCs. `use <tool_name>` selects a tool as the default for bare
-`run` invocations.
+Every `tool run` captures stdout into `<case>/output/`, records a `tool_run`
+timeline event (tool, args, return code, duration, output file), and
+automatically scans the output for IOCs.
 
 ## Tool kinds
 
@@ -19,8 +18,8 @@ the output for IOCs. `use <tool_name>` selects a tool as the default for bare
 | **Docker** | Container from a built image | `volatility`, `yara`, `zeek`, `tshark` |
 | **Local** | Executable on the host | any `cmd` defined in a tool manifest |
 
-`tools` lists everything: builtins, installed tools (with build status), and
-installable catalog entries.
+`tool list` lists everything: builtins, installed tools (with build status),
+and installable catalog entries.
 
 ## Built-in tools
 
@@ -51,12 +50,12 @@ manifests shipped with Mimir:
 
 | Command | Description |
 |---|---|
-| `install <name>` | Copy the catalog template into `~/.mimir/tools/<name>/` |
-| `build <name>` | `docker build --no-cache` the tool's Docker image |
-| `use <name>` | Select the tool as the default for `run` |
+| `tool install <name>` | Copy the catalog template into `~/.mimir/tools/<name>/` |
+| `tool build <name>` | `docker build --no-cache` the tool's Docker image |
+| `tool info <name>` | Show tool details (description, status, resolved command or image) |
 
-If a tool is already installed, `install` fails with a hint to use `build`
-instead (`use 'build <name>' to rebuild`).
+If a tool is already installed, `tool install` fails with a hint to use
+`tool build` instead (`use 'tool build <name>' to rebuild`).
 
 ### Tool manifest (`mimir.toml`)
 
@@ -98,7 +97,7 @@ To keep output bounded, Mimir applies:
 | Docker tool timeout | 30 minutes |
 | Output cap (per stream) | 8 MiB (silently truncated) |
 
-## The `mem` / `volatility` shortcut
+## The `memory` shortcut
 
-`volatility` and its alias `mem` are special first-class commands; see
+`memory` is a special first-class command; see
 [Memory, disk & registry analysis](analysis.md).
