@@ -84,7 +84,7 @@ func (a *App) cmdAnalyze(args []string) error {
 		sample = args[i]
 	}
 	if sample == "" {
-		return fmt.Errorf("usage: analyze <path> [--rules <path>]")
+		return fmt.Errorf("usage: tool analyze <path> [--rules <path>]")
 	}
 	info, err := os.Stat(sample)
 	if err != nil {
@@ -161,7 +161,7 @@ func (a *App) cmdAnalyze(args []string) error {
 		out, runErr := a.runAnalyzeTool(toolName, toolArgs)
 		if runErr != nil {
 			if errors.Is(runErr, errToolNotInstalled) {
-				fmt.Fprintf(os.Stderr, "%swarning:%s tool %q not installed — run: install %s\n", colorYellow, colorReset, toolName, toolName)
+				fmt.Fprintf(os.Stderr, "%swarning:%s tool %q not installed — run: tool install %s\n", colorYellow, colorReset, toolName, toolName)
 				results = append(results, analyzeToolResult{tool: toolName, status: "skipped"})
 				continue
 			}

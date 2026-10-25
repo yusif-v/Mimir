@@ -30,7 +30,7 @@ func TestCapaHints(t *testing.T) {
 		t.Fatalf("expected 2 capability hints (rule with no ATT&CK mapping skipped), got %d: %+v", len(hints), hints)
 	}
 	want := map[string]bool{
-		"T1055 Process Injection":                          false,
+		"T1055 Process Injection":                                      false,
 		"T1027.010 Obfuscated Files or Information: Standard Encoding": false,
 	}
 	for _, h := range hints {

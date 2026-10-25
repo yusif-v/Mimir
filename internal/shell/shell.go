@@ -262,6 +262,28 @@ func (a *App) promptMarker() string {
 	return colorize(marker, theme.ResolveColor(t.Colors.Brand)) + " "
 }
 
+// legacyCommands maps removed command names to their canonical replacement.
+// The rename is breaking: these names are not aliases, they exist only so the
+// resulting error can point an analyst at the new surface.
+var legacyCommands = map[string]string{
+	"cases":      "case list",
+	"status":     "case status",
+	"tools":      "tool list",
+	"run":        "tool run <name> [args...]",
+	"install":    "tool install <name>",
+	"build":      "tool build <name>",
+	"use":        "tool info <name>",
+	"analyze":    "tool analyze <path>",
+	"dashboard":  "tool dashboard",
+	"dash":       "tool dashboard",
+	"volatility": "memory <plugin>",
+	"mem":        "memory <plugin>",
+	"sleuthkit":  "disk <tool>",
+	"regripper":  "registry [hive]",
+	"ev":         "evidence",
+	"quit":       "exit",
+}
+
 func (a *App) dispatch(line string) error {
 	parts := splitArgs(line)
 	if len(parts) == 0 {
@@ -272,36 +294,28 @@ func (a *App) dispatch(line string) error {
 	args := parts[1:]
 
 	switch cmd {
-	case "exit", "quit":
+	case "exit":
 		return fmt.Errorf("exit")
 	case "help":
 		return a.cmdHelp(args)
-	case "status":
-		return a.cmdStatus(args)
 	case "case":
 		return a.cmdCase(args)
-	case "cases":
-		return a.cmdCases(args)
-	case "tools":
-		return a.cmdTools(args)
-	case "run":
-		return a.cmdRun(args)
-	case "analyze":
-		return a.cmdAnalyze(args)
-	case "install":
-		return a.cmdInstall(args)
-	case "build":
-		return a.cmdBuild(args)
-	case "use":
-		return a.cmdUse(args)
-	case "note":
-		return a.cmdNote(args)
-	case "evidence", "ev":
+	case "evidence":
 		return a.cmdEvidence(args)
-	case "timeline":
-		return a.cmdTimeline(args)
 	case "ioc":
 		return a.cmdIOC(args)
+	case "timeline":
+		return a.cmdTimeline(args)
+	case "tool":
+		return a.cmdTool(args)
+	case "memory":
+		return a.cmdVolatility(args)
+	case "disk":
+		return a.cmdDisk(args)
+	case "registry":
+		return a.cmdRegHives(args)
+	case "note":
+		return a.cmdNote(args)
 	case "correlate":
 		return a.cmdCorrelate(args)
 	case "clear":
@@ -322,53 +336,99 @@ func (a *App) dispatch(line string) error {
 		return a.cmdTheme(args)
 	case "sandbox":
 		return a.cmdSandbox(args)
-	case "sleuthkit":
-		return a.cmdDisk(args)
-	case "regripper":
-		return a.cmdRegHives(args)
 	case "report":
 		return a.cmdReport(args)
-	case "volatility", "mem":
-		return a.cmdVolatility(args)
-	case "dashboard", "dash":
-		return a.cmdDashboard(args)
-	default:
-		return a.cmdShell(line)
 	}
+
+	if replacement, ok := legacyCommands[cmd]; ok {
+		return fmt.Errorf("unknown command: %s — use %q", cmd, replacement)
+	}
+	return a.cmdShell(line)
 }
 
 func (a *App) cmdHelp(args []string) error {
-	fmt.Printf("  %shelp%s       show this help\n", colorGreen, colorReset)
-	fmt.Printf("  %sexit%s       exit Mimir\n", colorGreen, colorReset)
-	fmt.Printf("  %sstatus%s     show current case status\n", colorGreen, colorReset)
-	fmt.Printf("  %scase%s       manage cases: -n new, -o open, -c close, list (all cases), templates\n", colorGreen, colorReset)
-	fmt.Printf("  %scases%s      alias for %scase list%s\n", colorGreen, colorReset, colorGreen, colorReset)
-	fmt.Printf("  %stools%s      list registered tools\n", colorGreen, colorReset)
-	fmt.Printf("  %sdashboard%s   interactive TUI: tool explorer with live status\n", colorGreen, colorReset)
-	fmt.Printf("  %srun%s        run a tool: run <name> [args...]\n", colorGreen, colorReset)
-	fmt.Printf("  %sinstall%s    install a tool from the catalog: install <name>\n", colorGreen, colorReset)
-	fmt.Printf("  %sbuild%s      (re)build an installed tool's image: build <name>\n", colorGreen, colorReset)
-	fmt.Printf("  %suse%s        select a tool: use <name>\n", colorGreen, colorReset)
-	fmt.Printf("  %snote%s       add a note to current case\n", colorGreen, colorReset)
-	fmt.Printf("  %sevidence%s   manage evidence: add <path> [--tag a,b], tag, verify, classify [name]\n", colorGreen, colorReset)
-	fmt.Printf("  %stimeline%s   show case timeline (-n N tails last N, export [path] [--format csv|json], correlate)\n", colorGreen, colorReset)
-	fmt.Printf("  %sioc%s        extract IOCs: ioc <file> | ioc --from-output <name> | ioc diff <a> <b>\n", colorGreen, colorReset)
-	fmt.Printf("  %scorrelate%s cross memory/disk/network IOC graph: correlate [--dot]\n", colorGreen, colorReset)
-	fmt.Printf("  %sclear%s      clear screen\n", colorGreen, colorReset)
-	fmt.Printf("  %ssearch%s     find cases matching a query across all cases; --in-output searches tool output\n", colorGreen, colorReset)
-	fmt.Printf("  %sgrep%s       search tool output (alias for search --in-output)\n", colorGreen, colorReset)
-	fmt.Printf("  %sexport%s     export case: export [path] [--no-output] [--json] [--provenance]\n", colorGreen, colorReset)
-	fmt.Printf("  %simport%s     import a case archive: import <file.tar.gz> [--as name]\n", colorGreen, colorReset)
-	fmt.Printf("  %stheme%s      list/set/save themes: theme [list|set <name>|save [path]]\n", colorGreen, colorReset)
-	fmt.Printf("  %sai%s           LLM assistant: ask, analyze, suggest, explain\n", colorGreen, colorReset)
-	fmt.Printf("  %splugin%s      manage plugins: list, run <name>, info <name>\n", colorGreen, colorReset)
-	fmt.Printf("  %ssandbox%s     manage sandboxes: create, run, shell, logs, report, cp, destroy, list\n", colorGreen, colorReset)
-	fmt.Printf("  %sdisk%s        disk forensics (SleuthKit): disk <tool> [-i <image>] — mmls, fls, icat, fsstat, ...\n", colorGreen, colorReset)
-	fmt.Printf("  %sregripper%s    Windows registry hive analysis: regripper [hive] [-p plugin] [--json]\n", colorGreen, colorReset)
-	fmt.Printf("  %sreport%s     generate incident report: report [path] [--format md|pdf] [--no-ai]\n", colorGreen, colorReset)
-	fmt.Printf("  %svolatility%s  memory forensics (Volatility 3): volatility <plugin> [-f <dump>] [--offline] [args...]\n", colorGreen, colorReset)
-	fmt.Printf("  %sanalyze%s    static malware analysis: analyze <path> [--rules <path>] (auto yara/capa/oletools)\n", colorGreen, colorReset)
-	fmt.Printf("\n  %smimir mcp%s   run outside the shell: Run Mimir as an MCP server (stdio, or --http <addr>)\n", colorGreen, colorReset)
+	fmt.Printf("%sMimir commands%s — canonical form is <domain> <action>\n", colorCyan, colorReset)
+
+	groups := []struct {
+		domain string
+		lines  []string
+	}{
+		{"case", []string{
+			"case create <name> [-t <template>]   create a new case",
+			"case open <name>                     open an existing case",
+			"case close                           close the current case",
+			"case list [--status open|closed]     list cases",
+			"case status                          show the current case",
+			"case templates                       list case templates",
+		}},
+		{"evidence", []string{
+			"evidence list                        list tracked evidence",
+			"evidence add <path> [--tag a,b]      add a file to the case",
+			"evidence tag <name> <tag>...         tag evidence",
+			"evidence verify [name]               verify evidence hashes",
+			"evidence classify [name]             suggest an analysis tool",
+		}},
+		{"ioc", []string{
+			"ioc list                             list tracked indicators",
+			"ioc extract <file>                   extract indicators from a file",
+			"ioc from-output <tool>               extract from a tool's captured output",
+			"ioc diff <a> <b>                     compare two indicator sets",
+		}},
+		{"timeline", []string{
+			"timeline list [-n N] [--type t] [--grep p]   show timeline events",
+			"timeline export [path] [--format csv|json]   export the timeline",
+			"timeline build                       build a case narrative",
+			"timeline correlate                   correlate tool runs and indicators",
+		}},
+		{"tool", []string{
+			"tool list                            list installed and available tools",
+			"tool run <name> [args...]            run a tool against case evidence",
+			"tool install <name>                  install a tool from the catalog",
+			"tool build <name>                    rebuild an installed tool's image",
+			"tool info <name>                     show tool details",
+			"tool analyze <path> [--rules r]      static malware analysis",
+			"tool dashboard                       interactive tool explorer TUI",
+		}},
+		{"memory", []string{
+			"memory <plugin> [-f <dump>] [--offline]   Volatility 3 memory forensics",
+		}},
+		{"disk", []string{
+			"disk <tool> [-i <image>]             SleuthKit disk forensics",
+		}},
+		{"registry", []string{
+			"registry [hive] [-p <plugin>] [--json]   RegRipper hive analysis",
+		}},
+	}
+
+	for _, g := range groups {
+		fmt.Printf("\n  %s%s%s\n", colorGreen, g.domain, colorReset)
+		for _, line := range g.lines {
+			fmt.Printf("    %s\n", line)
+		}
+	}
+
+	other := []string{
+		"report [path] [--format md|pdf] [--no-ai]   generate an incident report",
+		"export [path] [--no-output] [--json] [--provenance]   export the current case",
+		"import <archive.tar.gz> [--as name]         import a case archive",
+		"note <text>                                 add a note to the current case",
+		"correlate [--dot]                           cross-domain IOC graph",
+		"search <query> [--in-output]                search cases or tool output",
+		"grep <pattern>                              alias for search --in-output",
+		"plugin <list|run|info> [name]               manage plugins",
+		"theme [list|set <name>|save [path]]         manage themes",
+		"sandbox <create|run|shell|logs|report|cp|destroy|list>   manage sandboxes",
+		"ai <ask|analyze|suggest|explain|summarize|config|models|use>   LLM assistant",
+		"clear                                       clear the screen",
+		"help                                        show this help",
+		"exit                                        exit Mimir",
+	}
+	fmt.Printf("\n  %sOther%s\n", colorGreen, colorReset)
+	for _, line := range other {
+		fmt.Printf("    %s\n", line)
+	}
+
+	fmt.Printf("\n  %smimir mcp%s   run outside the shell: Mimir as an MCP server (stdio, or --http <addr>)\n", colorGreen, colorReset)
 	return nil
 }
 
@@ -387,17 +447,15 @@ func (a *App) cmdStatus(args []string) error {
 
 func (a *App) cmdCase(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: case -n <name> [-t <template>] | case -o <name> | case -c | case list | case templates")
+		return fmt.Errorf("usage: case <create|open|close|list|status|templates> [args...]")
 	}
 
 	action := args[0]
 
 	switch action {
-	case "list", "ls":
-		return a.cmdCases(args[1:])
-	case "-n":
+	case "create":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: case -n <name> [-t <template>]")
+			return fmt.Errorf("usage: case create <name> [-t <template>]")
 		}
 		name := args[1]
 		templateName := "default"
@@ -412,20 +470,24 @@ func (a *App) cmdCase(args []string) error {
 			return err
 		}
 		fmt.Printf("Case created: %s\n", c.Path)
-	case "-o":
+	case "open":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: case -o <name>")
+			return fmt.Errorf("usage: case open <name>")
 		}
 		c, err := a.Cases.Open(args[1])
 		if err != nil {
 			return err
 		}
 		fmt.Printf("Case opened: %s\n", c.Path)
-	case "-c":
+	case "close":
 		if err := a.Cases.Close(); err != nil {
 			return err
 		}
 		fmt.Println("Case closed.")
+	case "list":
+		return a.cmdCases(args[1:])
+	case "status":
+		return a.cmdStatus(args[1:])
 	case "templates":
 		names, err := cases.ListTemplates()
 		if err != nil {
@@ -445,10 +507,42 @@ func (a *App) cmdCase(args []string) error {
 			}
 			fmt.Printf("  %-25s %s\n", tmpl.Name, tmpl.Description)
 		}
+	case "-n":
+		return fmt.Errorf("unknown command: case -n — use %q", "case create <name>")
+	case "-o":
+		return fmt.Errorf("unknown command: case -o — use %q", "case open <name>")
+	case "-c":
+		return fmt.Errorf("unknown command: case -c — use %q", "case close")
 	default:
-		return fmt.Errorf("unknown action: %s", action)
+		return fmt.Errorf("unknown command: case %s — use \"case list\" to list cases", action)
 	}
 	return nil
+}
+
+// cmdTool dispatches the tool domain's actions. Tools share one namespace for
+// listing, running, installing, building, inspecting and analyzing.
+func (a *App) cmdTool(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: tool <list|run|install|build|info|analyze|dashboard> [args...]")
+	}
+	switch args[0] {
+	case "list":
+		return a.cmdTools(args[1:])
+	case "run":
+		return a.cmdRun(args[1:])
+	case "install":
+		return a.cmdInstall(args[1:])
+	case "build":
+		return a.cmdBuild(args[1:])
+	case "info":
+		return a.cmdUse(args[1:])
+	case "analyze":
+		return a.cmdAnalyze(args[1:])
+	case "dashboard":
+		return a.cmdDashboard(args[1:])
+	default:
+		return fmt.Errorf("unknown command: tool %s — use \"tool list\"", args[0])
+	}
 }
 
 func (a *App) cmdCases(args []string) error {
@@ -561,7 +655,7 @@ func (a *App) cmdTools(args []string) error {
 		}
 	}
 	if len(available) > 0 {
-		fmt.Printf("\n%sAVAILABLE%s (install <name>)\n", colorCyan, colorReset)
+		fmt.Printf("\n%sAVAILABLE%s (tool install <name>)\n", colorCyan, colorReset)
 		tbl := ui.Table{
 			Headers: []string{"TOOL", "CATEGORY", "DESCRIPTION"},
 			Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft},
@@ -698,7 +792,7 @@ func (a *App) toolRunCounts() map[string]int {
 
 func (a *App) cmdRun(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: run <tool_name> [args...]")
+		return fmt.Errorf("usage: tool run <tool_name> [args...]")
 	}
 	toolArgs, err := a.resolveRunArgs(args[1:])
 	if err != nil {
@@ -849,7 +943,7 @@ func (a *App) recordRun(c *cases.Case, result *tools.Result) {
 
 func (a *App) cmdUse(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: use <tool_name>")
+		return fmt.Errorf("usage: tool info <tool_name>")
 	}
 	tool, ok := a.Tools.Get(args[0])
 	if !ok {
@@ -909,13 +1003,18 @@ func eventMatches(ev cases.TimelineEvent, lowerSub string) bool {
 }
 
 func (a *App) cmdTimeline(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("unknown command: timeline — use %q", "timeline list")
+	}
 	c := a.Cases.Current()
 	if c == nil {
 		return fmt.Errorf("no case is open")
 	}
 
-	// Handle "timeline build --auto" subcommand: correlate events into a narrative.
-	if len(args) > 0 && args[0] == "build" {
+	switch args[0] {
+	case "list":
+		return a.timelineList(c, args[1:])
+	case "build":
 		narr, err := c.Narrative()
 		if err != nil {
 			return err
@@ -929,16 +1028,9 @@ func (a *App) cmdTimeline(args []string) error {
 		}
 		fmt.Printf("%sNarrative written:%s %s\n", colorGreen, colorReset, outPath)
 		return nil
-	}
-
-	// Handle "timeline correlate" subcommand (G5): group tool runs by tool
-	// and show which tools contributed which indicators — a cross-tool view.
-	if len(args) > 0 && args[0] == "correlate" {
+	case "correlate":
 		return a.timelineCorrelate(c)
-	}
-
-	// Handle "timeline export" subcommand
-	if len(args) > 0 && args[0] == "export" {
+	case "export":
 		format := "csv"
 		path := ""
 		for i := 1; i < len(args); i++ {
@@ -954,8 +1046,12 @@ func (a *App) cmdTimeline(args []string) error {
 		}
 		fmt.Printf("Timeline exported to %s\n", path)
 		return nil
+	default:
+		return fmt.Errorf("unknown command: timeline %s — use \"timeline list\"", args[0])
 	}
+}
 
+func (a *App) timelineList(c *cases.Case, args []string) error {
 	evs := c.Timeline()
 
 	var types []string
@@ -1119,36 +1215,47 @@ func resolveCaseOutput(c *cases.Case, name string) string {
 
 func (a *App) cmdIOC(args []string) error {
 	if len(args) == 0 {
+		return fmt.Errorf("unknown command: ioc — use %q", "ioc list")
+	}
+	switch args[0] {
+	case "list":
 		return a.iocList()
-	}
-	if args[0] == "diff" {
-		return a.cmdIOCDiff(args[1:])
-	}
-	c := a.Cases.Current()
-	var data []byte
-	var source string
-	if args[0] == "--from-output" {
+	case "extract":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: ioc --from-output <name>")
+			return fmt.Errorf("usage: ioc extract <file>")
 		}
+		b, err := os.ReadFile(args[1])
+		if err != nil {
+			return fmt.Errorf("read %q: %w", args[1], err)
+		}
+		return a.recordExtractedIOCs(args[1], b)
+	case "from-output":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ioc from-output <tool>")
+		}
+		c := a.Cases.Current()
 		if c == nil {
 			return fmt.Errorf("no case is open")
 		}
-		source = args[1]
-		b, err := os.ReadFile(resolveCaseOutput(c, source))
+		b, err := os.ReadFile(resolveCaseOutput(c, args[1]))
 		if err != nil {
-			return fmt.Errorf("read output %q: %w", source, err)
+			return fmt.Errorf("read output %q: %w", args[1], err)
 		}
-		data = b
-	} else {
-		source = args[0]
-		b, err := os.ReadFile(source)
-		if err != nil {
-			return fmt.Errorf("read %q: %w", source, err)
+		return a.recordExtractedIOCs(args[1], b)
+	case "diff":
+		return a.cmdIOCDiff(args[1:])
+	default:
+		if args[0] == "--from-output" {
+			return fmt.Errorf("unknown command: ioc --from-output — use %q", "ioc from-output <tool>")
 		}
-		data = b
+		return fmt.Errorf("unknown command: ioc %s — use %q", args[0], "ioc extract <file>")
 	}
+}
 
+// recordExtractedIOCs extracts indicators from data, prints them, and records
+// them against the open case (if any). source labels where the data came from.
+func (a *App) recordExtractedIOCs(source string, data []byte) error {
+	c := a.Cases.Current()
 	inds := ioc.Extract(data)
 	if len(inds) == 0 {
 		fmt.Println("No indicators found.")
@@ -1333,7 +1440,7 @@ func (a *App) iocList() error {
 	}
 	iocs := c.IOCs()
 	if len(iocs) == 0 {
-		fmt.Println("No IOCs tracked. Extract with: ioc <file>")
+		fmt.Println("No IOCs tracked. Extract with: ioc extract <file>")
 		return nil
 	}
 	tbl := ui.Table{Headers: []string{"TYPE", "VALUE", "SOURCE"}, Align: []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft}}
@@ -2018,16 +2125,16 @@ func buildImage(templateDir, imageTag string) error {
 
 func (a *App) cmdInstall(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: install <tool_name>")
+		return fmt.Errorf("usage: tool install <tool_name>")
 	}
 	name := args[0]
 	if _, ok := catalog.Get(name); !ok {
-		return fmt.Errorf("unknown tool: %s (run 'tools' to see available)", name)
+		return fmt.Errorf("unknown tool: %s (run 'tool list' to see available)", name)
 	}
 
 	destDir := filepath.Join(a.Config.ToolsPath, name)
 	if _, err := os.Stat(destDir); err == nil {
-		return fmt.Errorf("%s already installed — use 'build %s' to rebuild", name, name)
+		return fmt.Errorf("%s already installed — use 'tool build %s' to rebuild", name, name)
 	}
 
 	if err := catalog.Install(name, destDir); err != nil {
@@ -2047,7 +2154,7 @@ func (a *App) cmdInstall(args []string) error {
 	if def.RunsInDocker() {
 		if !a.Runner.DockerReachable() {
 			fmt.Printf("%sTemplate installed, but Docker is not available — image not built.%s\n", colorYellow, colorReset)
-			fmt.Printf("Start Docker, then run '%sbuild %s%s' to build the image.\n", colorGreen, name, colorReset)
+			fmt.Printf("Start Docker, then run '%stool build %s%s' to build the image.\n", colorGreen, name, colorReset)
 			return nil
 		}
 		fmt.Printf("%sBuilding image %s...%s\n", colorCyan, def.DockerImage, colorReset)
@@ -2061,18 +2168,18 @@ func (a *App) cmdInstall(args []string) error {
 
 func (a *App) cmdBuild(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: build <tool_name>")
+		return fmt.Errorf("usage: tool build <tool_name>")
 	}
 	name := args[0]
 	def, ok := a.Tools.Get(name)
 	if !ok {
-		return fmt.Errorf("%s is not installed — run 'install %s' first", name, name)
+		return fmt.Errorf("%s is not installed — run 'tool install %s' first", name, name)
 	}
 	if !def.RunsInDocker() {
 		return fmt.Errorf("%s is a local tool — nothing to build", name)
 	}
 	if !a.Runner.DockerReachable() {
-		return fmt.Errorf("docker is not available — start Docker and retry 'build %s'", name)
+		return fmt.Errorf("docker is not available — start Docker and retry 'tool build %s'", name)
 	}
 	fmt.Printf("%sBuilding image %s...%s\n", colorCyan, def.DockerImage, colorReset)
 	if err := buildImage(filepath.Dir(def.TemplatePath), def.DockerImage); err != nil {
@@ -2083,14 +2190,16 @@ func (a *App) cmdBuild(args []string) error {
 }
 
 func (a *App) cmdEvidence(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("unknown command: evidence — use %q", "evidence list")
+	}
 	c := a.Cases.Current()
 	if c == nil {
 		return fmt.Errorf("no case is open")
 	}
-	if len(args) == 0 {
-		return a.evidenceList(c)
-	}
 	switch args[0] {
+	case "list":
+		return a.evidenceList(c)
 	case "add":
 		return a.evidenceAdd(c, args[1:])
 	case "tag":
@@ -2100,7 +2209,7 @@ func (a *App) cmdEvidence(args []string) error {
 	case "classify":
 		return a.evidenceClassify(c, args[1:])
 	default:
-		return fmt.Errorf("usage: evidence [add <path> [--tag a,b] | tag <name> <tag>... | verify [name] | classify [name]]")
+		return fmt.Errorf("unknown command: evidence %s — use \"evidence list\"", args[0])
 	}
 }
 

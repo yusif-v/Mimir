@@ -122,10 +122,12 @@ func TestBuildNamesOnlyDocker(t *testing.T) {
 func newTestSources() sources {
 	return sources{
 		commands:     commandNames,
+		subcommands:  subcommands,
 		toolNames:    []string{"hash", "volatility"},
 		installNames: []string{"yara"},
 		buildNames:   []string{"volatility"},
 		caseNames:    []string{"alpha", "beta"},
+		diskTools:    []string{"fls", "mmls"},
 		filePath: func(word string) ([][]rune, int) {
 			return [][]rune{[]rune("FILE")}, len([]rune(word))
 		},
@@ -133,38 +135,66 @@ func newTestSources() sources {
 }
 
 func TestCompleteCommandContext(t *testing.T) {
-	got, _ := complete("ru", newTestSources())
+	got, _ := complete("ev", newTestSources())
 	gs := runesToStrings(got)
-	if len(gs) != 1 || gs[0] != "n" { // "ru" + "n" = "run"
-		t.Fatalf("got %v, want [n]", gs)
+	if len(gs) != 1 || gs[0] != "idence" { // "ev" + "idence" = "evidence"
+		t.Fatalf("got %v, want [idence]", gs)
 	}
 }
 
-func TestCompleteRunTool(t *testing.T) {
-	got, length := complete("run vol", newTestSources())
+func TestCompleteSubcommands(t *testing.T) {
+	tests := []struct {
+		line string
+		want string
+	}{
+		{"case cr", "eate"},
+		{"evidence li", "st"},
+		{"ioc from-", "output"},
+		{"timeline co", "rrelate"},
+		{"tool dash", "board"},
+	}
+	for _, tc := range tests {
+		got, _ := complete(tc.line, newTestSources())
+		gs := runesToStrings(got)
+		if len(gs) != 1 || gs[0] != tc.want {
+			t.Errorf("complete(%q) = %v, want [%s]", tc.line, gs, tc.want)
+		}
+	}
+}
+
+func TestCompleteToolRunTool(t *testing.T) {
+	got, length := complete("tool run vol", newTestSources())
 	gs := runesToStrings(got)
 	if length != 3 || len(gs) != 1 || gs[0] != "atility" {
 		t.Fatalf("got %v len %d, want [atility] len 3", gs, length)
 	}
 }
 
-func TestCompleteRunArgIsFilePath(t *testing.T) {
-	got, _ := complete("run hash ev", newTestSources())
+func TestCompleteToolRunArgIsFilePath(t *testing.T) {
+	got, _ := complete("tool run hash ev", newTestSources())
 	gs := runesToStrings(got)
 	if len(gs) != 1 || gs[0] != "FILE" {
 		t.Fatalf("got %v, want [FILE] (file-path source)", gs)
 	}
 }
 
-func TestCompleteCaseFlagThenName(t *testing.T) {
-	flags, _ := complete("case -", newTestSources())
-	if len(runesToStrings(flags)) != 3 { // -n -o -c
-		t.Fatalf("flags = %v, want 3", runesToStrings(flags))
+func TestCompleteCaseActionThenName(t *testing.T) {
+	actions, _ := complete("case ", newTestSources())
+	if len(runesToStrings(actions)) != len(subcommands["case"]) {
+		t.Fatalf("actions = %v, want all case subcommands", runesToStrings(actions))
 	}
-	names, _ := complete("case -o al", newTestSources())
+	names, _ := complete("case open al", newTestSources())
 	gs := runesToStrings(names)
 	if len(gs) != 1 || gs[0] != "pha" {
 		t.Fatalf("got %v, want [pha]", gs)
+	}
+}
+
+func TestCompleteDiskTools(t *testing.T) {
+	got, _ := complete("disk m", newTestSources())
+	gs := runesToStrings(got)
+	if len(gs) != 1 || gs[0] != "mls" {
+		t.Fatalf("got %v, want [mls]", gs)
 	}
 }
 
@@ -215,7 +245,8 @@ func TestCompleterDoCompletesRegisteredTool(t *testing.T) {
 	reg.Register(&tools.Definition{Name: "volatility", DockerImage: "img"})
 	app := &App{Tools: reg, Cases: cases.NewManager(t.TempDir(), bus, nil, nil)}
 	c := &Completer{app: app}
-	got, _ := c.Do([]rune("run vol"), 7)
+	line := "tool run vol"
+	got, _ := c.Do([]rune(line), len([]rune(line)))
 	gs := runesToStrings(got)
 	if len(gs) != 1 || gs[0] != "atility" {
 		t.Fatalf("got %v, want [atility]", gs)
