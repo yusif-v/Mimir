@@ -609,7 +609,50 @@ func (a *App) cmdDashboard(args []string) error {
 	installed := a.Tools.List("")
 	statuses, _ := a.Runner.ResolveStatuses(installed)
 
-	model := ui.NewToolExplorer(installed, statuses, a.toolRunCounts())
+	// Merge the three tool sources into one list so a fresh install still has
+	// something to explore. Installed rows carry live statuses; catalog entries
+	// not yet installed are marked available; native builtins are always ready.
+	installedNames := make(map[string]bool, len(installed))
+	entries := make([]ui.ToolEntry, 0, len(installed)+len(builtins.List())+12)
+	for _, def := range installed {
+		installedNames[def.Name] = true
+		entries = append(entries, ui.ToolEntry{
+			Name:        def.Name,
+			Description: def.Description,
+			Category:    def.Category,
+			Source:      ui.SourceInstalled,
+			Status:      statuses[def.Name],
+			Tags:        def.Tags,
+		})
+	}
+	for _, meta := range builtins.List() {
+		entries = append(entries, ui.ToolEntry{
+			Name:        meta.Name,
+			Description: meta.Description,
+			Category:    "built-in",
+			Source:      ui.SourceBuiltin,
+			Status:      tools.StatusReady,
+		})
+	}
+	catalogEntries, err := catalog.List()
+	if err != nil {
+		return fmt.Errorf("read catalog: %w", err)
+	}
+	for _, entry := range catalogEntries {
+		if installedNames[entry.Name] {
+			continue
+		}
+		entries = append(entries, ui.ToolEntry{
+			Name:        entry.Name,
+			Description: entry.Description,
+			Category:    entry.Category,
+			Source:      ui.SourceAvailable,
+			Status:      tools.StatusNotBuilt,
+			Tags:        entry.Tags,
+		})
+	}
+
+	model := ui.NewToolExplorerFromEntries(entries, statuses, a.toolRunCounts())
 	model.SetResolver(func() (map[string]tools.Status, bool) {
 		return a.Runner.ResolveStatuses(installed)
 	})
