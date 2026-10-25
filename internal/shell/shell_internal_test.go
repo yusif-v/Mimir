@@ -830,7 +830,7 @@ func TestIOCDiffAddedRemoved(t *testing.T) {
 	}
 	old := os.Stdout
 	os.Stdout = w
-	runErr := app.cmdIOCDiff([]string{aPath, bPath})
+	runErr := app.cmdIOCDiff([]string{aPath, bPath}, false)
 	w.Close()
 	os.Stdout = old
 	if runErr != nil {

@@ -137,7 +137,7 @@ func (a *App) cmdAnalyze(args []string) error {
 	name := filepath.Base(sample)
 	if existing := c.FindEvidenceByHash(sum); existing != nil {
 		name = existing.Name
-	} else if err := a.evidenceAdd(c, []string{sample}); err != nil {
+	} else if err := a.evidenceAdd(c, []string{sample}, false); err != nil {
 		return fmt.Errorf("register evidence: %w", err)
 	}
 	containerPath := "/evidence/" + name
