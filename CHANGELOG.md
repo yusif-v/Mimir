@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Dashboard rewritten around a merged tool list.** The explorer previously
+  passed only `Registry.List("")` — the *installed* registry — so the native
+  builtins and catalog entries were never offered and a fresh install rendered
+  nothing but `No tools match the current filter`. It now merges all three tool
+  sources into one list, each row labelled `[builtin]`, `[installed]` or
+  `[available]`. Rows are width-bounded (long descriptions wrap to indented
+  continuation lines, nothing exceeds the terminal width), colours come from the
+  active theme so `theme set` reaches the dashboard, and `/` searches by name,
+  description, category and tags. `Tab` expands the selected row in place with
+  its full description, tags, source, status, run count and category. The
+  viewport now measures rendered row heights instead of assuming a fixed number
+  of chrome lines, keeping the header pinned and the last visible row unclipped,
+  and an in-flight refresh shows `refreshing…` in the footer with spinner status
+  glyphs instead of stale values.
+
 ### Fixed
 - **`tools` output is now an aligned table.** `INSTALLED`, `AVAILABLE` and
   `BUILT-IN` were rendered as hand-rolled `Printf` lines with hardcoded widths, so

@@ -66,9 +66,33 @@ import ~/cases/incident-42.tar.gz --as incident-43
 dashboard    # or: dash
 ```
 
-A full-screen interactive TUI (bubbletea, alternate screen) that explores the
-installed tool set: live build/install status and per-tool run counts. Press
-Enter on a tool to run it immediately. `q`/`Esc` exits back to the REPL.
+A full-screen interactive TUI (bubbletea, alternate screen) with a single,
+information-dense tool explorer. It merges all three tool sources into one
+list — native builtins, installed tools, and installable catalog entries — so
+the dashboard is populated even on a fresh install. Each row is labelled with
+its source (`[builtin]`, `[installed]`, `[available]`), plus a status glyph,
+name, category, description and status/run count.
+
+- **Width-bounded rows**: long descriptions wrap onto continuation lines
+  indented to the description column, and no line exceeds the terminal width.
+- **Theme-aware colours**: the explorer reads colours from the active theme, so
+  `theme set` changes the dashboard's appearance.
+- **Search**: `/` opens an input that filters by name, description, category and
+  tags, case-insensitively; `Esc` clears it and restores the full list.
+- **Inline detail**: `Tab` (or `d`) expands the selected row in place to show the
+  full description, tags, source, status, run count and category; `Tab` again
+  collapses it.
+- **Measured viewport**: the scroll window is computed from rendered row heights
+  rather than a fixed row count, so the header stays pinned and the last visible
+  row is never clipped.
+- **Live statuses**: statuses refresh on start and with `r`; while a refresh is
+  in flight the footer reads `refreshing…` and stale status glyphs are replaced
+  by a spinner.
+
+Keys: `j`/`k` or `↑`/`↓` move; `1`/`2`/`3` filter all / ready / needs
+attention; `c` cycles category; `/` searches; `Esc` clears the search (or quits
+when it is already empty); `Tab`/`d` expands; `r` refreshes; `Enter` runs the
+selected tool; `q` or `Ctrl+C` quits back to the REPL.
 
 ## Themes
 
