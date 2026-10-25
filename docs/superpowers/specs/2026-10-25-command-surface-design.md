@@ -66,10 +66,19 @@ request. A tool that cannot emit JSON cannot be scripted.
 **P5 — Every empty state prints a message.** "Nothing here" must be
 distinguishable from "the command did nothing".
 
-**P6 — Old names become aliases, not deletions.** The README, the MCP tool list,
-the vault notes and the user's muscle memory all reference `run`, `tools`, `cases`,
-`status`, `evidence`, `volatility`. Renaming them outright breaks all four. The new
-names are canonical; the old names are aliases, deprecated on a stated schedule.
+**P6 — Breaking rename: old names are removed, not aliased.** Decided 2026-10-25.
+The new names are canonical and the old ones are gone. The cost is accepted
+explicitly: the README, the MCP tool list, the vault notes and the user's muscle
+memory all reference `run`, `tools`, `cases`, `status`, `evidence` and `volatility`.
+
+Because the old names disappear, `help` must make the new surface discoverable —
+that is the entire mitigation, since there is no alias to fall back on. An analyst
+who types `run` gets `unknown command: run` and has to read `help`. That is the
+trade: a clean surface with no legacy cruft, paid for with a relearn.
+
+The `Was` column in each table below is therefore a **migration map**, not a list
+of aliases. T6.8 is not optional — a rename that leaves docs pointing at removed
+names is worse than no rename.
 
 ## Canonical surface
 
@@ -190,11 +199,12 @@ features.
 
 ## Workstream W6 — tasks
 
-- **T6.1** Canonical `domain action` dispatch with the old names as aliases.
+- **T6.1** Canonical `domain action` dispatch, replacing the old names.
 
-  **AC:** every canonical name in the table above works; every old name still works
-  and prints a one-line deprecation notice naming its replacement.
-  **AC:** `help` lists canonical names with their aliases, grouped by domain.
+  **AC:** every canonical name in the table above works; **no old name works** —
+  `run`, `tools`, `cases`, `status`, `evidence` and `volatility` each return
+  `unknown command` naming the replacement.
+  **AC:** `help` lists canonical names grouped by domain.
   **AC:** tab completion completes canonical names and their subcommands.
 
 - **T6.2** `--json` on every command.

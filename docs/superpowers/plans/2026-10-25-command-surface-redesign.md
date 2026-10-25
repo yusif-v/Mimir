@@ -9,20 +9,21 @@ T6.8 is documentation. T6.1 must land first, and T6.2–T6.7 all edit
 
 ## Phase 1 — the dispatch
 
-### T6.1 Canonical `domain action` names, old names as aliases
+### T6.1 Canonical `domain action` names — breaking rename
 
-- **Do:** restructure the REPL dispatch to `<domain> <verb>`; register every old
-  name as an alias that prints a one-line deprecation notice naming its
-  replacement. Group `help` output by domain and add alias + subcommand
-  completion.
-- **Done when:** every canonical name works; every old name still works with a
-  deprecation notice; `help` is grouped by domain and fits the terminal width.
+- **Do:** restructure the REPL dispatch to `<domain> <verb>` and **remove** the old
+  names. Group `help` output by domain and add subcommand completion.
+- **Done when:** every canonical name works; `run`, `tools`, `cases`, `status`,
+  `evidence` and `volatility` each return `unknown command` naming the
+  replacement; `help` is grouped by domain and fits the terminal width.
 - **Watch out for:** the dispatch is a hand-written `switch` on `args[0]`
   (`internal/shell/shell.go:275`), not a command framework. Adding domains means
-  restructuring that switch — do it once, not per command. And the deprecation
-  notice must go to stderr or it will corrupt `--json` output.
-- **Learn:** why aliases beat renames — a breaking CLI change costs every script,
-  doc and muscle memory at once, and buys nothing the alias does not.
+  restructuring that switch — do it once, not per command. With no aliases, `help`
+  is the only migration aid, so it has to be genuinely readable rather than an
+  alphabetical dump.
+- **Learn:** what a breaking rename actually costs, and why `help` quality becomes
+  load-bearing when there is no fallback. The vault note, the README and the
+  `docs/*.md` references are all part of this change (T6.8), not follow-up work.
 
 ### T6.2 `--json` on every command
 
