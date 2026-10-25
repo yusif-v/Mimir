@@ -525,18 +525,24 @@ func (a *App) cmdTools(args []string) error {
 		fmt.Println("No tools installed.")
 	} else {
 		fmt.Printf("%sINSTALLED%s\n", colorCyan, colorReset)
+		tbl := ui.Table{
+			Headers: []string{"TOOL", "MODE", "STATUS", "DESCRIPTION"},
+			Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft, ui.AlignLeft},
+		}
 		for _, t := range installed {
 			mode := "local"
 			if t.RunsInDocker() {
 				mode = "docker"
 			}
 			label, color := statusBadge(statuses[t.Name])
-			fmt.Printf("  %s%-16s%s [%s] %s%-10s%s %s\n",
-				colorGreen, t.Name, colorReset,
+			tbl.Rows = append(tbl.Rows, []string{
+				ui.Colorize(t.Name, colorGreen),
 				mode,
-				color, label, colorReset,
-				t.Description)
+				ui.Colorize(label, color),
+				t.Description,
+			})
 		}
+		tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	}
 
 	// AVAILABLE section = catalog minus already-installed
@@ -556,23 +562,37 @@ func (a *App) cmdTools(args []string) error {
 	}
 	if len(available) > 0 {
 		fmt.Printf("\n%sAVAILABLE%s (install <name>)\n", colorCyan, colorReset)
-		for _, e := range available {
-			fmt.Printf("  %s%-16s%s %-12s %s\n",
-				colorGreen, e.Name, colorReset,
-				e.Category, e.Description)
+		tbl := ui.Table{
+			Headers: []string{"TOOL", "CATEGORY", "DESCRIPTION"},
+			Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft},
 		}
+		for _, e := range available {
+			tbl.Rows = append(tbl.Rows, []string{
+				ui.Colorize(e.Name, colorGreen),
+				e.Category,
+				e.Description,
+			})
+		}
+		tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	}
 
 	// BUILT-IN section: native-Go tools, always ready.
 	bi := builtins.List()
 	if len(bi) > 0 {
 		fmt.Printf("\n%sBUILT-IN%s\n", colorCyan, colorReset)
-		for _, m := range bi {
-			fmt.Printf("  %s%-16s%s [builtin] %sready%s      %s\n",
-				colorGreen, m.Name, colorReset,
-				colorGreen, colorReset,
-				m.Description)
+		tbl := ui.Table{
+			Headers: []string{"TOOL", "MODE", "STATUS", "DESCRIPTION"},
+			Align:   []ui.Align{ui.AlignLeft, ui.AlignLeft, ui.AlignLeft, ui.AlignLeft},
 		}
+		for _, m := range bi {
+			tbl.Rows = append(tbl.Rows, []string{
+				ui.Colorize(m.Name, colorGreen),
+				"builtin",
+				ui.Colorize("ready", colorGreen),
+				m.Description,
+			})
+		}
+		tbl.Render(os.Stdout, ui.TermWidth(os.Stdout), !ui.IsTTY(os.Stdout))
 	}
 
 	// docker footer
